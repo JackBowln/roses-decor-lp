@@ -4,7 +4,7 @@
       <div class="footer-grid">
         <div class="footer-brand">
           <h2 class="brand-logo">Rose's</h2>
-          <p>Cortinas e Persianas sob medida em Lisboa.</p>
+          <p>Cortinas e Persianas sob medida.</p>
         </div>
         <div class="footer-links">
           <h3>Nossos Serviços</h3>
@@ -16,8 +16,8 @@
           </ul>
         </div>
         <div class="footer-contact">
-          <h3>Contacto</h3>
-          <p>Lisboa, Portugal</p>
+          <h3>Contato</h3>
+          <p>Brasil | Atendimento Nacional</p>
           <p>WhatsApp: +55 27 99822-0461</p>
           <p>Instagram: @roses_cortinas_persianas</p>
         </div>

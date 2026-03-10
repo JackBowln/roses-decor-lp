@@ -10,9 +10,9 @@
 
 <script setup>
 useHead({
-  title: "Rose's Cortinas e Persianas | Design sob Medida em Lisboa",
+  title: "Rose's Cortinas e Persianas | Design sob Medida Premium",
   meta: [
-    { name: 'description', content: 'Cortinas e persianas premium sob medida em Lisboa. Transforme seu ambiente com elegância e exclusividade.' }
+    { name: 'description', content: 'Elegância e sofisticação em cortinas e persianas premium sob medida no Brasil. Transforme seu ambiente com exclusividade.' }
   ]
 })
 </script>

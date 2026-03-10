@@ -9,7 +9,8 @@
       <div class="product-grid">
         <div v-for="product in products" :key="product.title" class="product-card">
           <div class="product-image">
-            <img :src="product.image" :alt="product.title" />
+            <NuxtImg :src="product.image" :alt="product.title" sizes="sm:100vw md:50vw lg:33vw" format="webp"
+              quality="80" />
           </div>
           <div class="product-info">
             <h3>{{ product.title }}</h3>
@@ -26,17 +27,17 @@ const products = [
   {
     title: 'Cortinas em Tecido',
     description: 'Elegância clássica com tecidos nobres e acabamento impecável.',
-    image: '/images/hero.png' // Using hero as fallback for fabric
+    image: '/images/hero_br.png'
   },
   {
     title: 'Persianas Rolo',
     description: 'Minimalismo e controle de luz preciso para ambientes modernos.',
-    image: '/images/roller-blinds.png'
+    image: '/images/roller_br.png'
   },
   {
     title: 'Persianas de Madeira',
     description: 'O toque natural e sofisticado que seu ambiente merece.',
-    image: '/images/wooden-blinds.png'
+    image: '/images/wooden_br.png'
   }
 ]
 </script>

@@ -1,17 +1,13 @@
 <template>
   <header class="hero">
-    <div class="hero-bg">
-      <NuxtImg src="/images/hero_br.png" alt="Cortinas de Luxo" sizes="sm:100vw md:100vw lg:100vw" format="webp"
-        quality="90" loading="eager" />
-    </div>
     <div class="hero-overlay"></div>
     <div class="container hero-content">
       <div class="hero-text">
-        <span class="hero-tag">Exclusividades no Brasil</span>
-        <h1>Elegância e sofisticação em cortinas sob medida</h1>
-        <p>Design exclusivo, materiais premium e atendimento personalizado para criar o ambiente dos seus sonhos.</p>
+        <span class="hero-tag">Exclusividades</span>
+        <h1>Transforme sua casa com a elegância das cortinas sob medida</h1>
+        <p>Design exclusivo, materiais premium e instalação profissional para criar o ambiente dos seus sonhos.</p>
         <div class="hero-ctas">
-          <a href="#pre-orcamento" class="btn btn-primary">Solicitar Orçamento Grátis</a>
+          <a href="#pre-orcamento" class="btn btn-primary">Pedir Orçamento Grátis</a>
           <a href="https://wa.me/5527998220461" target="_blank" class="btn btn-outline">Falar no WhatsApp</a>
         </div>
       </div>
@@ -24,25 +20,12 @@
   position: relative;
   height: 90vh;
   min-height: 600px;
+  background-image: url('/images/hero.png');
+  background-size: cover;
+  background-position: center;
   display: flex;
   align-items: center;
   color: var(--white);
-  overflow: hidden;
-}
-
-.hero-bg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-}
-
-.hero-bg img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .hero-overlay {
