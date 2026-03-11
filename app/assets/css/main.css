@@ -4,8 +4,8 @@
   --primary: #C5A059;
   --primary-hover: #B48E48;
   --bg-cream: #F9F7F2;
-  --text-dark: #2C2C2C;
-  --text-muted: #555555;
+  --text-dark: #1A1A1A;
+  --text-muted: #3D3D3D;
   --white: #FFFFFF;
   --glass: rgba(255, 255, 255, 0.7);
   --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
@@ -31,6 +31,7 @@ body {
 h1, h2, h3 {
   font-family: 'Playfair Display', serif;
   font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .container {

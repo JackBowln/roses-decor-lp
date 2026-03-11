@@ -17,7 +17,7 @@
         </div>
         <div class="footer-contact">
           <h3>Contato</h3>
-          <p>Brasil | Atendimento Nacional</p>
+          <p>Atendimento personalizado</p>
           <p>WhatsApp: +55 27 99822-0461</p>
           <p>Instagram: @roses_cortinas_persianas</p>
         </div>

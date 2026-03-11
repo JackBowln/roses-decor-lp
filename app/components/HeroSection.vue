@@ -1,112 +1,45 @@
+<script setup lang="ts">
+import ScrollExpansionHero from './ui/ScrollExpansionHero.vue'
+import FlipWords from './ui/FlipWords.vue'
+
+const words = ["elegantes", "sofisticados", "exclusivos", "modernos"]
+</script>
+
 <template>
-  <header class="hero">
-    <div class="hero-bg">
-      <NuxtImg src="/images/hero_br.png" alt="Cortinas de Luxo" sizes="sm:100vw md:100vw lg:100vw" format="webp"
-        quality="90" loading="eager" />
-    </div>
-    <div class="hero-overlay"></div>
-    <div class="container hero-content">
-      <div class="hero-text">
-        <span class="hero-tag">Exclusividades no Brasil</span>
-        <h1>Elegância e sofisticação em cortinas sob medida</h1>
-        <p>Design exclusivo, materiais premium e atendimento personalizado para criar o ambiente dos seus sonhos.</p>
-        <div class="hero-ctas">
-          <a href="#pre-orcamento" class="btn btn-primary">Solicitar Orçamento Grátis</a>
-          <a href="https://wa.me/5527998220461" target="_blank" class="btn btn-outline">Falar no WhatsApp</a>
-        </div>
+  <ScrollExpansionHero
+    mediaType="video"
+    mediaSrc="https://videos.pexels.com/video-files/4462151/4462151-uhd_2732_1440_25fps.mp4"
+    posterSrc="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=1920&auto=format&fit=crop"
+    bgImageSrc="https://images.unsplash.com/photo-1513694203232-719a280e022f?q=80&w=1920&auto=format&fit=crop"
+    title="Roses Decor"
+    date="Sofisticação"
+    scrollToExpand="Descubra a Elegância"
+    :textBlend="false"
+  >
+    <div class="max-w-5xl mx-auto text-center px-4 relative z-20">
+      <span class="inline-block font-bold uppercase tracking-widest text-[#B48E48] mb-6 text-sm" style="font-family: 'Montserrat', sans-serif;">Alta Costura para Janelas</span>
+      <h2 class="text-4xl md:text-5xl lg:text-7xl font-bold mb-8 text-gray-900 leading-tight" style="font-family: 'Playfair Display', serif;">
+        Ambientes
+        <FlipWords :words="words" class="text-[#B48E48]" /> <br />
+        com cortinas sob medida
+      </h2>
+      <p class="text-xl md:text-2xl mb-12 text-gray-700 max-w-3xl mx-auto leading-relaxed" style="font-family: 'Montserrat', sans-serif; font-weight: 400;">
+        Design exclusivo, materiais premium e caimento impecável. 
+        Vestimos sua casa com a elegância que apenas a Roses Decor entrega.
+      </p>
+
+      <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
+        <a href="#pre-orcamento" class="px-8 py-4 bg-[#C5A059] text-white font-bold uppercase tracking-wide rounded-lg shadow-lg hover:bg-[#B48E48] transition-all hover:-translate-y-1" style="font-family: 'Montserrat', sans-serif;">
+          Solicitar Orçamento Grátis
+        </a>
+        <a href="https://wa.me/5527998220461" target="_blank" class="px-8 py-4 border-2 border-gray-800 text-gray-800 font-bold uppercase tracking-wide rounded-lg hover:bg-gray-800 hover:text-white transition-all hover:-translate-y-1 bg-transparent" style="font-family: 'Montserrat', sans-serif;">
+          Falar no WhatsApp
+        </a>
       </div>
     </div>
-  </header>
+  </ScrollExpansionHero>
 </template>
 
 <style scoped>
-.hero {
-  position: relative;
-  height: 90vh;
-  min-height: 600px;
-  display: flex;
-  align-items: center;
-  color: var(--white);
-  overflow: hidden;
-}
-
-.hero-bg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-}
-
-.hero-bg img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.hero-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.2) 100%);
-}
-
-.hero-content {
-  position: relative;
-  z-index: 1;
-}
-
-.hero-text {
-  max-width: 650px;
-}
-
-.hero-tag {
-  display: inline-block;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  color: var(--primary);
-  margin-bottom: 20px;
-  font-size: 0.9rem;
-}
-
-h1 {
-  font-size: 3.5rem;
-  line-height: 1.1;
-  margin-bottom: 24px;
-}
-
-p {
-  font-size: 1.2rem;
-  margin-bottom: 40px;
-  opacity: 0.9;
-}
-
-.hero-ctas {
-  display: flex;
-  gap: 16px;
-}
-
-.btn-outline {
-  border: 2px solid var(--white);
-  color: var(--white);
-}
-
-.btn-outline:hover {
-  background-color: var(--white);
-  color: var(--text-dark);
-}
-
-@media (max-width: 768px) {
-  h1 {
-    font-size: 2.5rem;
-  }
-
-  .hero-ctas {
-    flex-direction: column;
-  }
-}
+/* Additional component-specific styling if needed. The primary UI leverages Tailwind utility classes */
 </style>

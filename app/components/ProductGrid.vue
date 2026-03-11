@@ -1,5 +1,5 @@
 <template>
-  <section class="products section-padding">
+  <section id="produtos" class="products section-padding">
     <div class="container">
       <div class="section-header">
         <h2>Soluções Sob Medida</h2>
@@ -9,8 +9,7 @@
       <div class="product-grid">
         <div v-for="product in products" :key="product.title" class="product-card">
           <div class="product-image">
-            <NuxtImg :src="product.image" :alt="product.title" sizes="sm:100vw md:50vw lg:33vw" format="webp"
-              quality="80" />
+            <img :src="product.image" :alt="product.title" loading="lazy" />
           </div>
           <div class="product-info">
             <h3>{{ product.title }}</h3>
