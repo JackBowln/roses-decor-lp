@@ -162,7 +162,7 @@ const isStepValid = computed(() => {
 </script>
 
 <template>
-  <div class="w-full max-w-2xl mx-auto py-8 text-black" style="font-family: 'Montserrat', sans-serif;">
+  <div class="w-full max-w-2xl mx-auto py-8 text-black font-montserrat">
     <!-- Progress indicator -->
     <Motion class="mb-8" :initial="{ opacity: 0, y: -20 }" :animate="{ opacity: 1, y: 0 }"
       :transition="{ duration: 0.5 }">

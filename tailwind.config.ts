@@ -9,7 +9,14 @@ export default {
     "./error.vue"
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        sans: ['Montserrat', 'sans-serif'],
+        serif: ['"Playfair Display"', 'serif'],
+        montserrat: ['Montserrat', 'sans-serif'],
+        playfair: ['"Playfair Display"', 'serif']
+      }
+    },
   },
   plugins: [],
 }
