@@ -3,6 +3,12 @@ const route = useRoute()
 const { logout, session } = useAdminSession()
 const isLoggingOut = ref(false)
 
+const adminLinks = [
+  { label: 'Pré-orçamentos', to: '/gestao/pre-orcamentos' },
+  { label: 'Clientes', to: '/gestao/clientes' },
+  { label: 'Orçamentos', to: '/gestao/orcamentos' },
+]
+
 const handleLogout = async () => {
   try {
     isLoggingOut.value = true
@@ -24,10 +30,14 @@ const handleLogout = async () => {
           <strong class="admin-title">Roses Decor</strong>
         </div>
 
-        <div class="admin-header-actions">
-          <NuxtLink v-if="route.path !== '/gestao/orcamentos'" to="/gestao/orcamentos" class="admin-link">
-            Ir para orçamentos
+        <nav class="admin-nav">
+          <NuxtLink v-for="link in adminLinks" :key="link.to" :to="link.to" class="admin-link"
+            :class="{ 'admin-link-active': route.path === link.to }">
+            {{ link.label }}
           </NuxtLink>
+        </nav>
+
+        <div class="admin-header-actions">
           <button v-if="session.authenticated" type="button" class="admin-button" :disabled="isLoggingOut"
             @click="handleLogout">
             {{ isLoggingOut ? 'Saindo...' : 'Sair' }}
@@ -55,15 +65,15 @@ const handleLogout = async () => {
   top: 0;
   z-index: 40;
   backdrop-filter: blur(16px);
-  background: rgba(248, 244, 237, 0.8);
+  background: rgba(248, 244, 237, 0.84);
   border-bottom: 1px solid rgba(197, 160, 89, 0.14);
 }
 
 .admin-header-inner {
   min-height: 78px;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 18px;
 }
 
@@ -82,10 +92,15 @@ const handleLogout = async () => {
   font-size: 1.05rem;
 }
 
+.admin-nav,
 .admin-header-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.admin-nav {
+  justify-content: center;
 }
 
 .admin-button,
@@ -103,5 +118,22 @@ const handleLogout = async () => {
   font-size: 0.84rem;
   font-weight: 700;
   cursor: pointer;
+}
+
+.admin-link-active {
+  background: var(--primary);
+  color: var(--white);
+  border-color: transparent;
+}
+
+@media (max-width: 980px) {
+  .admin-header-inner {
+    grid-template-columns: 1fr;
+    padding: 14px 0;
+  }
+
+  .admin-nav {
+    justify-content: flex-start;
+  }
 }
 </style>

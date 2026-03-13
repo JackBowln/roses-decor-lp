@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { toast } from 'vue-sonner'
 import AdminDocumentCard from '@/components/admin/AdminDocumentCard.vue'
 import AdminQuoteItemCard from '@/components/admin/AdminQuoteItemCard.vue'
 import AdminTabs from '@/components/admin/AdminTabs.vue'
@@ -9,6 +10,7 @@ definePageMeta({
   middleware: 'admin-auth',
 })
 
+const route = useRoute()
 const { refreshSession } = useAdminSession()
 const {
   activeTab,
@@ -35,8 +37,148 @@ const {
   zipcodeLookupError,
 } = useAdminQuoteBuilder()
 
+const activeQuoteId = ref<string | null>(null)
+const linkedCustomerId = ref<string | null>(null)
+const linkedPreQuoteId = ref<string | null>(null)
+const linkedPreQuoteCode = ref('')
+const linkedCustomerName = ref('')
+const linkedCustomerLocation = ref('')
+const isLoadingRecord = ref(false)
+const isSavingRecord = ref(false)
+const lastSavedAt = ref('')
+
+interface LoadedFinalQuotePayload {
+  id: string
+  customerId: string
+  preQuoteId: string | null
+  record: typeof record.value
+  updatedAt: string
+  customer: {
+    id: string
+    name: string
+    locationLabel: string
+  } | null
+  preQuote: {
+    id: string
+    code: string
+  } | null
+}
+
+const applyLoadedQuote = (payload: LoadedFinalQuotePayload) => {
+  record.value = payload.record
+  activeQuoteId.value = payload.id
+  linkedCustomerId.value = payload.customerId
+  linkedPreQuoteId.value = payload.preQuoteId
+  linkedPreQuoteCode.value = payload.preQuote?.code || ''
+  linkedCustomerName.value = payload.customer?.name || ''
+  linkedCustomerLocation.value = payload.customer?.locationLabel || ''
+  lastSavedAt.value = payload.updatedAt
+}
+
+const loadQuoteFromRoute = async () => {
+  const quoteId = typeof route.query.quoteId === 'string' ? route.query.quoteId : ''
+
+  if (!quoteId) {
+    activeQuoteId.value = null
+    linkedCustomerId.value = null
+    linkedPreQuoteId.value = null
+    linkedPreQuoteCode.value = ''
+    linkedCustomerName.value = ''
+    linkedCustomerLocation.value = ''
+    lastSavedAt.value = ''
+    return
+  }
+
+  try {
+    isLoadingRecord.value = true
+    const payload = await $fetch<LoadedFinalQuotePayload>(`/api/admin/final-quotes/${quoteId}`, {
+      credentials: 'include',
+    })
+    applyLoadedQuote(payload)
+  }
+  catch (error) {
+    const message = typeof error === 'object'
+      && error !== null
+      && 'data' in error
+      && typeof (error as { data?: { statusMessage?: string } }).data?.statusMessage === 'string'
+      ? (error as { data: { statusMessage: string } }).data.statusMessage
+      : 'Não foi possível carregar o orçamento final.'
+
+    toast.error(message)
+  }
+  finally {
+    isLoadingRecord.value = false
+  }
+}
+
+const saveCurrentQuote = async () => {
+  try {
+    isSavingRecord.value = true
+    const response = await $fetch<{ ok: true; finalQuote: LoadedFinalQuotePayload }>('/api/admin/final-quotes/save', {
+      method: 'POST',
+      credentials: 'include',
+      body: {
+        id: activeQuoteId.value,
+        customerId: linkedCustomerId.value,
+        preQuoteId: linkedPreQuoteId.value,
+        record: record.value,
+      },
+    })
+
+    applyLoadedQuote(response.finalQuote)
+
+    if (typeof route.query.quoteId !== 'string' || route.query.quoteId !== response.finalQuote.id) {
+      await navigateTo({
+        path: '/gestao/orcamentos',
+        query: {
+          quoteId: response.finalQuote.id,
+        },
+      }, { replace: true })
+    }
+
+    toast.success('Orçamento salvo com sucesso.')
+  }
+  catch (error) {
+    const message = typeof error === 'object'
+      && error !== null
+      && 'data' in error
+      && typeof (error as { data?: { statusMessage?: string } }).data?.statusMessage === 'string'
+      ? (error as { data: { statusMessage: string } }).data.statusMessage
+      : 'Não foi possível salvar o orçamento.'
+
+    toast.error(message)
+  }
+  finally {
+    isSavingRecord.value = false
+  }
+}
+
+const startEmptyQuote = async () => {
+  resetRecord()
+  activeQuoteId.value = null
+  linkedCustomerId.value = null
+  linkedPreQuoteId.value = null
+  linkedPreQuoteCode.value = ''
+  linkedCustomerName.value = ''
+  linkedCustomerLocation.value = ''
+  lastSavedAt.value = ''
+  await navigateTo('/gestao/orcamentos', { replace: true })
+}
+
 onMounted(() => {
-  refreshSession()
+  void refreshSession()
+})
+
+watch(isReady, (ready) => {
+  if (ready) {
+    void loadQuoteFromRoute()
+  }
+}, { immediate: true })
+
+watch(() => route.query.quoteId, () => {
+  if (isReady.value) {
+    void loadQuoteFromRoute()
+  }
 })
 
 const summaryStats = computed(() => [
@@ -51,6 +193,10 @@ const summaryStats = computed(() => [
   {
     label: 'Validade',
     value: record.value.project.validUntil || 'Sem data',
+  },
+  {
+    label: 'Último salvamento',
+    value: lastSavedAt.value ? new Date(lastSavedAt.value).toLocaleString('pt-BR') : 'Não salvo',
   },
 ])
 </script>
@@ -79,16 +225,46 @@ const summaryStats = computed(() => [
             </div>
           </div>
 
-          <button type="button" class="outline-button" @click="resetRecord">Novo orçamento</button>
+          <button type="button" class="outline-button" @click="startEmptyQuote">Novo orçamento</button>
         </div>
       </aside>
 
-      <div class="quote-content" v-if="isReady">
+      <div class="quote-content" v-if="isLoadingRecord">
+        <div class="panel-card">
+          <span class="section-kicker">Carregando</span>
+          <h2>Abrindo orçamento final</h2>
+          <p>Recuperando o vínculo com cliente e pré-orçamento.</p>
+        </div>
+      </div>
+
+      <div class="quote-content" v-else-if="isReady">
         <div class="panel-card panel-card-top">
           <div>
             <span class="section-kicker">Projeto</span>
             <h2>{{ record.project.code }}</h2>
             <p>Fluxo pensado para reduzir erro operacional e manter o que será enviado consistente entre cliente e equipe.</p>
+          </div>
+          <div class="top-actions">
+            <button type="button" class="outline-button" @click="startEmptyQuote">Novo orçamento vazio</button>
+            <button type="button" class="primary-button" :disabled="isSavingRecord" @click="saveCurrentQuote">
+              {{ isSavingRecord ? 'Salvando...' : 'Salvar orçamento' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="linkedPreQuoteId || linkedCustomerId" class="panel-card relation-card">
+          <div class="relation-grid">
+            <div>
+              <span class="section-kicker">Cliente vinculado</span>
+              <strong>{{ linkedCustomerName || record.customer.name || 'Cliente sem identificação' }}</strong>
+              <p>{{ linkedCustomerLocation || record.customer.city || record.customer.neighborhood || 'Origem não informada' }}</p>
+            </div>
+
+            <div v-if="linkedPreQuoteId">
+              <span class="section-kicker">Pré-orçamento de origem</span>
+              <strong>{{ linkedPreQuoteCode }}</strong>
+              <p>Conversão preservada para rastreabilidade comercial.</p>
+            </div>
           </div>
         </div>
 
@@ -522,6 +698,25 @@ const summaryStats = computed(() => [
   align-items: center;
 }
 
+.top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.relation-card strong {
+  display: block;
+  color: var(--text-dark);
+  font-size: 1.08rem;
+}
+
+.relation-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .panel-heading {
   display: grid;
   gap: 8px;
@@ -716,6 +911,11 @@ const summaryStats = computed(() => [
   .panel-card-top,
   .panel-card-inline {
     align-items: flex-start;
+  }
+
+  .top-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 

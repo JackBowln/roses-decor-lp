@@ -1,20 +1,16 @@
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { buildWhatsAppUrl, quoteFormOptions, quoteFormSteps } from '@/lib/site'
+import { quoteFormOptions, quoteFormSteps } from '@/lib/site'
+import { formatPhoneMask, isValidEmail, isValidPhone } from '@/lib/fieldMasks'
+import type { PublicPreQuoteContact, PublicPreQuoteItem, PreQuoteRecord } from '@/lib/quoteWorkspace'
 
-export interface QuoteItem {
-  type: string
-  env: string
-  material: string
-  blackout: string
-  width: string
-  height: string
-  dontKnowMeasures: boolean
-}
+export interface QuoteItem extends PublicPreQuoteItem {}
 
-interface Contact {
-  name: string
-  location: string
+interface Contact extends PublicPreQuoteContact {}
+
+interface QuoteSubmissionResult {
+  preQuote: PreQuoteRecord
+  whatsappUrl: string
 }
 
 const createEmptyQuoteItem = (): QuoteItem => ({
@@ -29,32 +25,10 @@ const createEmptyQuoteItem = (): QuoteItem => ({
 
 const createEmptyContact = (): Contact => ({
   name: '',
+  whatsapp: '',
+  email: '',
   location: '',
 })
-
-const buildWhatsAppMessage = (contact: Contact, items: QuoteItem[]) => {
-  let message = `Olá! Gostaria de fazer um orçamento.\n\nMeu nome: ${contact.name}\nLocal: ${contact.location}\n\n*Itens:*\n`
-
-  items.forEach((item, index) => {
-    message += `\n${index + 1}. ${item.type} para ${item.env}\n`
-    message += `   Material: ${item.material}`
-
-    if (item.type === 'Cortina') {
-      message += ` (Blackout: ${item.blackout})`
-    }
-
-    message += '\n'
-
-    if (item.dontKnowMeasures) {
-      message += '   Medidas: Não sei as medidas exatas\n'
-      return
-    }
-
-    message += `   Medidas: ${item.width}m x ${item.height}m\n`
-  })
-
-  return message
-}
 
 export function useQuoteForm() {
   const currentItem = ref<QuoteItem>(createEmptyQuoteItem())
@@ -62,6 +36,7 @@ export function useQuoteForm() {
   const contact = ref<Contact>(createEmptyContact())
   const currentStep = ref(0)
   const isSubmitting = ref(false)
+  const submissionResult = ref<QuoteSubmissionResult | null>(null)
 
   const resetCurrentItem = () => {
     currentItem.value = createEmptyQuoteItem()
@@ -71,6 +46,7 @@ export function useQuoteForm() {
     currentStep.value = 0
     items.value = []
     contact.value = createEmptyContact()
+    submissionResult.value = null
     resetCurrentItem()
   }
 
@@ -121,7 +97,7 @@ export function useQuoteForm() {
   }
 
   const selectType = (type: string) => {
-    currentItem.value.type = type
+    currentItem.value.type = type as QuoteItem['type']
     window.setTimeout(nextStep, 300)
   }
 
@@ -131,31 +107,63 @@ export function useQuoteForm() {
   }
 
   const selectStep = (index: number) => {
+    if (submissionResult.value) {
+      return
+    }
+
     if (index <= currentStep.value && index !== 4) {
       currentStep.value = index
     }
   }
 
-  const finish = () => {
+  const updateWhatsapp = (value: string) => {
+    contact.value.whatsapp = formatPhoneMask(value)
+  }
+
+  const openWhatsApp = () => {
+    if (!submissionResult.value?.whatsappUrl) {
+      return
+    }
+
+    const popup = window.open(submissionResult.value.whatsappUrl, '_blank', 'noopener,noreferrer')
+
+    if (!popup) {
+      window.location.href = submissionResult.value.whatsappUrl
+    }
+  }
+
+  const finish = async () => {
     if (isSubmitting.value) {
       return
     }
 
     isSubmitting.value = true
 
-    const whatsappMessage = buildWhatsAppMessage(contact.value, items.value)
-    const whatsappUrl = buildWhatsAppUrl(whatsappMessage)
+    try {
+      const response = await $fetch<QuoteSubmissionResult>('/api/public/pre-quotes', {
+        method: 'POST',
+        body: {
+          customer: contact.value,
+          items: items.value,
+        },
+      })
 
-    toast.success('Redirecionando para o WhatsApp...')
-
-    const whatsappWindow = window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
-
-    if (!whatsappWindow) {
-      window.location.href = whatsappUrl
+      submissionResult.value = response
+      toast.success(`Pré-orçamento ${response.preQuote.code} salvo com sucesso.`)
     }
+    catch (error) {
+      const message = typeof error === 'object'
+        && error !== null
+        && 'data' in error
+        && typeof (error as { data?: { statusMessage?: string } }).data?.statusMessage === 'string'
+        ? (error as { data: { statusMessage: string } }).data.statusMessage
+        : 'Não foi possível salvar o pré-orçamento.'
 
-    resetForm()
-    isSubmitting.value = false
+      toast.error(message)
+    }
+    finally {
+      isSubmitting.value = false
+    }
   }
 
   const isStepValid = computed(() => {
@@ -171,7 +179,10 @@ export function useQuoteForm() {
       case 4:
         return items.value.length > 0
       case 5:
-        return contact.value.name.trim() !== '' && contact.value.location.trim() !== ''
+        return contact.value.name.trim() !== ''
+          && contact.value.location.trim() !== ''
+          && isValidPhone(contact.value.whatsapp)
+          && (!contact.value.email.trim() || isValidEmail(contact.value.email))
       default:
         return true
     }
@@ -187,12 +198,16 @@ export function useQuoteForm() {
     isSubmitting,
     items,
     nextStep,
+    openWhatsApp,
     prevStep,
     quoteFormOptions,
     removeItem,
+    resetForm,
     selectEnvironment,
     selectStep,
     selectType,
     steps: quoteFormSteps,
+    submissionResult,
+    updateWhatsapp,
   }
 }

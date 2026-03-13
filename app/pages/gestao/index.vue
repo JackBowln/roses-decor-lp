@@ -1,20 +1,18 @@
 <script setup lang="ts">
 definePageMeta({
   layout: 'admin',
+  middleware: 'admin-auth',
 })
 
-const { refreshSession } = useAdminSession()
-
 onMounted(async () => {
-  const session = await refreshSession()
-  await navigateTo(session.authenticated ? '/gestao/orcamentos' : '/gestao/login')
+  await navigateTo('/gestao/pre-orcamentos')
 })
 </script>
 
 <template>
   <section class="redirect-shell">
     <div class="container">
-      <p>Carregando área interna...</p>
+      <p>Carregando gestão...</p>
     </div>
   </section>
 </template>
