@@ -21,7 +21,6 @@
     "clsx": "^2.1.1",
     "lucide-vue-next": "^0.577.0",
     "motion-v": "^2.0.0",
-    "shadcn-nuxt": "^2.4.3",
     "tailwind-merge": "^3.5.0"
   }
 }

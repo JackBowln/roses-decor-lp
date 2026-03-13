@@ -1,5 +1,10 @@
+<script setup lang="ts">
+import ProductCard from './ui/ProductCard.vue'
+import { productCatalog, sectionIds } from '@/lib/site'
+</script>
+
 <template>
-  <section id="produtos" class="products section-padding">
+  <section :id="sectionIds.products" class="products section-padding">
     <div class="container">
       <div class="section-header">
         <h2>Soluções Sob Medida</h2>
@@ -7,39 +12,11 @@
       </div>
 
       <div class="product-grid">
-        <div v-for="product in products" :key="product.title" class="product-card">
-          <div class="product-image">
-            <img :src="product.image" :alt="product.title" loading="lazy" />
-          </div>
-          <div class="product-info">
-            <h3>{{ product.title }}</h3>
-            <p>{{ product.description }}</p>
-          </div>
-        </div>
+        <ProductCard v-for="product in productCatalog" :key="product.title" v-bind="product" />
       </div>
     </div>
   </section>
 </template>
-
-<script setup>
-const products = [
-  {
-    title: 'Cortinas em Tecido',
-    description: 'Elegância clássica com tecidos nobres e acabamento impecável.',
-    image: '/images/hero_br.png'
-  },
-  {
-    title: 'Persianas Rolo',
-    description: 'Minimalismo e controle de luz preciso para ambientes modernos.',
-    image: '/images/roller_br.png'
-  },
-  {
-    title: 'Persianas de Madeira',
-    description: 'O toque natural e sofisticado que seu ambiente merece.',
-    image: '/images/wooden_br.png'
-  }
-]
-</script>
 
 <style scoped>
 .section-header {
@@ -48,50 +25,17 @@ const products = [
 }
 
 .section-header h2 {
-  font-size: 2.5rem;
+  font-size: clamp(2rem, 4vw, 2.5rem);
   margin-bottom: 10px;
+}
+
+.section-header p {
+  color: var(--text-muted);
 }
 
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 30px;
-}
-
-.product-card {
-  background: var(--white);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.3s ease;
-}
-
-.product-card:hover {
-  transform: translateY(-10px);
-  box-shadow: var(--shadow-md);
-}
-
-.product-image {
-  height: 250px;
-  overflow: hidden;
-}
-
-.product-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.product-info {
-  padding: 24px;
-}
-
-.product-info h3 {
-  font-size: 1.5rem;
-  margin-bottom: 12px;
-}
-
-.product-info p {
-  color: var(--text-muted);
 }
 </style>

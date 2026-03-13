@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Motion, AnimatePresence } from 'motion-v'
 import { cn } from '@/lib/utils'
 
@@ -14,17 +14,18 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const rootRef = ref<HTMLElement | null>(null)
-const currentWord = ref<string>(props.words[0])
+const normalizedWords = computed(() => props.words.filter(Boolean))
+const currentWord = ref<string>(normalizedWords.value[0] ?? '')
 const isAnimating = ref(false)
 const isVisible = ref(true)
 let nextAnimationTimeout: ReturnType<typeof setTimeout> | null = null
 let visibilityObserver: IntersectionObserver | null = null
 
 const startAnimation = () => {
-  if (!isVisible.value || isAnimating.value) return
+  if (!isVisible.value || isAnimating.value || normalizedWords.value.length <= 1) return
 
-  const currentIndex = props.words.indexOf(currentWord.value)
-  const nextWord = props.words[currentIndex + 1] || props.words[0]
+  const currentIndex = normalizedWords.value.indexOf(currentWord.value)
+  const nextWord = normalizedWords.value[currentIndex + 1] || normalizedWords.value[0]
   currentWord.value = nextWord
   isAnimating.value = true
 }
@@ -39,7 +40,7 @@ const clearAnimationTimer = () => {
 const queueNextAnimation = () => {
   clearAnimationTimer()
 
-  if (!isVisible.value) return
+  if (!isVisible.value || normalizedWords.value.length <= 1) return
 
   nextAnimationTimeout = setTimeout(() => {
     startAnimation()
@@ -78,6 +79,16 @@ watch(isAnimating, (newVal) => {
 
 watch(isVisible, (visible) => {
   if (visible) {
+    queueNextAnimation()
+  } else {
+    clearAnimationTimer()
+  }
+})
+
+watch(normalizedWords, (words) => {
+  currentWord.value = words[0] ?? ''
+
+  if (words.length > 1 && isVisible.value) {
     queueNextAnimation()
   } else {
     clearAnimationTimer()

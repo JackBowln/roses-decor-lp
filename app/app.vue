@@ -1,3 +1,21 @@
+<script setup lang="ts">
+import { Toaster } from 'vue-sonner'
+import { useSmoothAnchorLinks } from '@/composables/useSmoothAnchorLinks'
+import { siteConfig } from '@/lib/site'
+
+useSmoothAnchorLinks()
+
+useHead({
+  title: siteConfig.seo.title,
+  meta: [
+    {
+      name: 'description',
+      content: siteConfig.seo.description,
+    },
+  ],
+})
+</script>
+
 <template>
   <div class="lp-wrapper">
     <TheHeader />
@@ -9,18 +27,3 @@
     <Toaster position="top-right" rich-colors />
   </div>
 </template>
-
-<script setup>
-import { Toaster } from 'vue-sonner'
-
-useHead({
-  title: "Rose's Cortinas e Persianas | Design sob Medida Premium",
-  meta: [
-    { name: 'description', content: 'Elegância e sofisticação em cortinas e persianas premium sob medida no Brasil. Transforme seu ambiente com exclusividade.' }
-  ]
-})
-</script>
-
-<style>
-/* Global page styles can go here if needed */
-</style>

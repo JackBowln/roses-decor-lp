@@ -1,27 +1,40 @@
+<script setup lang="ts">
+import { onMounted, onUnmounted, ref } from 'vue'
+import { navigationLinks, siteConfig } from '@/lib/site'
+
+const isScrolled = ref(false)
+
+const handleScroll = () => {
+  isScrolled.value = window.scrollY > 50
+}
+
+onMounted(() => {
+  handleScroll()
+  window.addEventListener('scroll', handleScroll, { passive: true })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll)
+})
+</script>
+
 <template>
   <header class="main-header" :class="{ 'header-scrolled': isScrolled }">
     <div class="container header-container">
       <div class="logo">
-        <span class="logo-text">Rose's</span>
+        <span class="logo-text">{{ siteConfig.brand.shortName }}</span>
         <span class="logo-subtext">Cortinas & Persianas</span>
       </div>
-      <nav class="nav-desktop">
-        <a href="#produtos">Produtos</a>
-        <a href="#pre-orcamento" class="btn btn-sm btn-primary">Orçamento</a>
+
+      <nav class="nav-desktop" aria-label="Navegação principal">
+        <a v-for="link in navigationLinks" :key="link.href" :href="link.href"
+          :class="link.variant === 'primary' ? 'btn btn-sm btn-primary' : ''">
+          {{ link.label }}
+        </a>
       </nav>
     </div>
   </header>
 </template>
-
-<script setup>
-const isScrolled = ref(false)
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('scroll', () => {
-    isScrolled.value = window.scrollY > 50
-  })
-}
-</script>
 
 <style scoped>
 .main-header {
@@ -95,6 +108,16 @@ if (typeof window !== 'undefined') {
 
 .nav-desktop a:hover {
   color: var(--primary);
+}
+
+.nav-desktop .btn-primary,
+.header-scrolled .nav-desktop .btn-primary {
+  color: var(--white);
+}
+
+.nav-desktop .btn-primary:hover,
+.header-scrolled .nav-desktop .btn-primary:hover {
+  color: var(--white);
 }
 
 .btn-sm {

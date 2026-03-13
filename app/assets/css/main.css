@@ -20,6 +20,10 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   font-family: 'Montserrat', sans-serif;
   background-color: var(--bg-cream);
@@ -34,6 +38,10 @@ h1, h2, h3 {
   font-family: 'Playfair Display', serif;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+section[id] {
+  scroll-margin-top: 96px;
 }
 
 .container {

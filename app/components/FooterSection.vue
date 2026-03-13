@@ -1,29 +1,41 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { serviceHighlights, siteConfig } from '@/lib/site'
+
+const currentYear = computed(() => new Date().getFullYear())
+</script>
+
 <template>
   <footer class="footer section-padding">
     <div class="container">
       <div class="footer-grid">
         <div class="footer-brand">
-          <h2 class="brand-logo">Rose's</h2>
-          <p>Cortinas e Persianas sob medida.</p>
+          <h2 class="brand-logo">{{ siteConfig.brand.shortName }}</h2>
+          <p>{{ siteConfig.brand.tagline }}</p>
         </div>
+
         <div class="footer-links">
           <h3>Nossos Serviços</h3>
           <ul>
-            <li>Cortinas em Tecido</li>
-            <li>Persianas Modernas</li>
-            <li>Automatização</li>
-            <li>Instalação Profissional</li>
+            <li v-for="service in serviceHighlights" :key="service">{{ service }}</li>
           </ul>
         </div>
+
         <div class="footer-contact">
           <h3>Contato</h3>
           <p>Atendimento personalizado</p>
-          <p>WhatsApp: +55 27 99822-0461</p>
-          <p>Instagram: @roses_cortinas_persianas</p>
+          <p>WhatsApp: {{ siteConfig.contact.whatsappDisplay }}</p>
+          <p>
+            Instagram:
+            <a :href="siteConfig.contact.instagramUrl" target="_blank" rel="noopener noreferrer">
+              {{ siteConfig.contact.instagramHandle }}
+            </a>
+          </p>
         </div>
       </div>
+
       <div class="footer-bottom">
-        <p>&copy; 2026 Rose's Cortinas e Persianas. Todos os direitos reservados.</p>
+        <p>&copy; {{ currentYear }} {{ siteConfig.brand.fullName }}. Todos os direitos reservados.</p>
       </div>
     </div>
   </footer>
@@ -61,6 +73,15 @@ ul {
 ul li {
   margin-bottom: 10px;
   opacity: 0.8;
+}
+
+.footer-contact a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.footer-contact a:hover {
+  color: var(--primary);
 }
 
 .footer-bottom {
