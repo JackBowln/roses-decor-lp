@@ -42,11 +42,12 @@ const contact = ref({
 
 const currentStep = ref(0)
 const isSubmitting = ref(false)
+const whatsappPhone = '5527998220461'
 
 const environments = ['Sala', 'Quarto', 'Escritório', 'Cozinha', 'Outro']
 const tecidos = ['Linho', 'Linho Rústico', 'Voil', 'Não sei ainda']
 const blackouts = ['70%', '100%', 'Sem Blackout']
-const persianas = ['Rolo', 'Madeira', 'Double Vision', 'Romana']
+const persianas = ['Rolo', 'Madeira', 'Double Vision', 'Romana', "Não sei ainda"]
 
 const nextStep = () => {
   if (currentStep.value === 3) {
@@ -98,10 +99,7 @@ const removeItem = (index: number) => {
   }
 }
 
-const finish = () => {
-  isSubmitting.value = true
-
-  // Format message for WhatsApp
+const buildWhatsAppMessage = () => {
   let msg = `Olá! Gostaria de fazer um orçamento.\n\nMeu nome: ${contact.value.name}\nLocal: ${contact.value.location}\n\n*Itens:*\n`
 
   items.value.forEach((item, index) => {
@@ -118,17 +116,29 @@ const finish = () => {
     }
   })
 
-  setTimeout(() => {
-    toast.success("Redirecionando para o WhatsApp...")
-    isSubmitting.value = false
-    const phone = '5527998220461' // Substitua pelo número real da Rose
-    const encodedMsg = encodeURIComponent(msg)
-    window.open(`https://wa.me/${phone}?text=${encodedMsg}`, '_blank')
-    currentStep.value = 0
-    items.value = []
-    contact.value = { name: '', location: '' }
-    resetCurrentItem()
-  }, 1000)
+  return `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(msg)}`
+}
+
+const resetForm = () => {
+  currentStep.value = 0
+  items.value = []
+  contact.value = { name: '', location: '' }
+  resetCurrentItem()
+}
+
+const finish = () => {
+  if (isSubmitting.value) return
+
+  isSubmitting.value = true
+
+  const whatsappUrl = buildWhatsAppMessage()
+
+  toast.success("Redirecionando para o WhatsApp...")
+
+  const whatsappWindow = window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+
+  resetForm()
+  isSubmitting.value = false
 }
 
 const selectType = (val: string) => {
@@ -138,6 +148,11 @@ const selectType = (val: string) => {
 
 const selectEnv = (val: string) => {
   currentItem.value.env = val
+  setTimeout(() => nextStep(), 300)
+}
+
+const selectPersiana = (val: string) => {
+  currentItem.value.material = val
   setTimeout(() => nextStep(), 300)
 }
 
@@ -282,7 +297,7 @@ const isStepValid = computed(() => {
               <div v-else class="space-y-4">
                 <p class="text-sm font-semibold mb-3 text-gray-700 uppercase tracking-wider">Modelo de Persiana</p>
                 <div class="grid grid-cols-2 gap-3">
-                  <button v-for="p in persianas" :key="p" @click="currentItem.material = p"
+                  <button v-for="p in persianas" :key="p" @click="selectPersiana(p)"
                     class="py-4 px-2 rounded-xl border-2 flex items-center justify-center transition-all duration-300 font-medium text-sm"
                     :class="currentItem.material === p ? 'border-[#C5A059] bg-[#C5A059]/10 text-[#C5A059]' : 'border-gray-200 hover:border-[#C5A059]/50 bg-white text-gray-600'">
                     {{ p }}
@@ -349,7 +364,7 @@ const isStepValid = computed(() => {
                     <p class="text-sm text-gray-600 mt-1">
                       {{ item.material }}
                       <template v-if="item.blackout && item.blackout !== 'Sem Blackout'">• Blackout {{ item.blackout
-                      }}</template>
+                        }}</template>
                     </p>
                     <p class="text-sm text-gray-500 mt-1">
                       <span v-if="item.dontKnowMeasures">Medidas a confirmar</span>
