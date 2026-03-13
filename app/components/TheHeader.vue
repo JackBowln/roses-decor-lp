@@ -27,10 +27,10 @@ onUnmounted(() => {
       </div>
 
       <nav class="nav-desktop" aria-label="Navegação principal">
-        <a v-for="link in navigationLinks" :key="link.href" :href="link.href"
+        <NuxtLink v-for="link in navigationLinks" :key="link.to" :to="link.to"
           :class="link.variant === 'primary' ? 'btn btn-sm btn-primary' : ''">
           {{ link.label }}
-        </a>
+        </NuxtLink>
       </nav>
     </div>
   </header>

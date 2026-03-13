@@ -1,15 +1,30 @@
-import { onMounted, onUnmounted } from 'vue'
+import { nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from '#imports'
 import { INTERNAL_ANCHOR_NAVIGATION_EVENT } from '@/lib/navigation'
 
 const HEADER_SELECTOR = '.main-header'
 const EXTRA_OFFSET = 16
 
-const getAnchorIdFromHref = (href: string) => {
-  if (!href.startsWith('#')) {
+const normalizePath = (path: string) => {
+  const normalized = path.replace(/\/+$/, '')
+  return normalized || '/'
+}
+
+const getAnchorLinkData = (href: string) => {
+  try {
+    const url = new URL(href, window.location.origin)
+
+    if (url.origin !== window.location.origin || !url.hash) {
+      return null
+    }
+
+    return {
+      path: normalizePath(url.pathname),
+      anchorId: decodeURIComponent(url.hash.replace(/^#/, '')),
+    }
+  } catch {
     return null
   }
-
-  return href.slice(1)
 }
 
 const getScrollTopForElement = (element: Element) => {
@@ -19,13 +34,17 @@ const getScrollTopForElement = (element: Element) => {
   return Math.max(0, window.scrollY + element.getBoundingClientRect().top - headerOffset)
 }
 
-export function useSmoothAnchorLinks() {
-  const scrollToAnchor = (anchorId: string, updateHistory = true) => {
-    const decodedId = decodeURIComponent(anchorId)
-    const target = decodedId ? document.getElementById(decodedId) : document.documentElement
+const findAnchorTarget = (anchorId: string) => {
+  return anchorId ? document.getElementById(anchorId) : document.documentElement
+}
 
+export function useSmoothAnchorLinks() {
+  const route = useRoute()
+
+  const scrollToAnchor = (anchorId: string, updateHistory = true) => {
+    const target = findAnchorTarget(anchorId)
     if (!target) {
-      return
+      return false
     }
 
     window.dispatchEvent(new CustomEvent(INTERNAL_ANCHOR_NAVIGATION_EVENT))
@@ -40,9 +59,12 @@ export function useSmoothAnchorLinks() {
     })
 
     if (updateHistory) {
-      const nextHash = decodedId ? `#${decodedId}` : `${window.location.pathname}${window.location.search}`
-      window.history.pushState(null, '', nextHash)
+      const hash = anchorId ? `#${anchorId}` : ''
+      const url = `${window.location.pathname}${window.location.search}${hash}`
+      window.history.pushState(null, '', url)
     }
+
+    return true
   }
 
   const handleDocumentClick = (event: MouseEvent) => {
@@ -67,40 +89,61 @@ export function useSmoothAnchorLinks() {
       return
     }
 
-    const anchorId = getAnchorIdFromHref(target.getAttribute('href') ?? '')
+    const linkData = getAnchorLinkData(target.getAttribute('href') ?? '')
 
-    if (anchorId === null) {
+    if (!linkData) {
+      return
+    }
+
+    if (linkData.path !== normalizePath(window.location.pathname)) {
       return
     }
 
     event.preventDefault()
-    scrollToAnchor(anchorId)
+    scrollToAnchor(linkData.anchorId)
   }
 
-  const handleHashNavigation = (allowEmptyHash = false) => {
-    const hash = window.location.hash.replace(/^#/, '')
-
-    if (!hash && !allowEmptyHash) {
+  const syncRouteHash = async (hash: string) => {
+    if (!hash) {
       return
     }
 
-    scrollToAnchor(hash, false)
-  }
+    await nextTick()
 
-  const handleHashChange = () => {
-    handleHashNavigation(true)
+    const anchorId = hash.replace(/^#/, '')
+    let attempts = 0
+
+    const tryScroll = () => {
+      if (scrollToAnchor(anchorId, false)) {
+        return
+      }
+
+      if (attempts >= 10) {
+        return
+      }
+
+      attempts += 1
+      window.requestAnimationFrame(tryScroll)
+    }
+
+    tryScroll()
   }
 
   onMounted(() => {
     document.addEventListener('click', handleDocumentClick)
-    window.addEventListener('hashchange', handleHashChange)
-    handleHashNavigation()
   })
 
   onUnmounted(() => {
     document.removeEventListener('click', handleDocumentClick)
-    window.removeEventListener('hashchange', handleHashChange)
   })
+
+  watch(
+    () => route.fullPath,
+    () => {
+      syncRouteHash(route.hash)
+    },
+    { immediate: true }
+  )
 
   return {
     scrollToAnchor,

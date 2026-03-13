@@ -1,13 +1,7 @@
 export interface NavigationLink {
   label: string
-  href: string
+  to: string
   variant?: 'default' | 'primary'
-}
-
-export interface Product {
-  title: string
-  description: string
-  image: string
 }
 
 export interface QuoteStep {
@@ -60,26 +54,8 @@ export const siteConfig = {
 } as const
 
 export const navigationLinks: NavigationLink[] = [
-  { label: 'Produtos', href: `#${sectionIds.products}` },
-  { label: 'Orçamento', href: `#${sectionIds.preQuote}`, variant: 'primary' },
-]
-
-export const productCatalog: Product[] = [
-  {
-    title: 'Cortinas em Tecido',
-    description: 'Elegância clássica com tecidos nobres e acabamento impecável.',
-    image: '/images/hero_br.png',
-  },
-  {
-    title: 'Persianas Rolo',
-    description: 'Minimalismo e controle de luz preciso para ambientes modernos.',
-    image: '/images/roller_br.png',
-  },
-  {
-    title: 'Persianas de Madeira',
-    description: 'O toque natural e sofisticado que seu ambiente merece.',
-    image: '/images/wooden_br.png',
-  },
+  { label: 'Produtos', to: `/#${sectionIds.products}` },
+  { label: 'Orçamento', to: `/#${sectionIds.preQuote}`, variant: 'primary' },
 ]
 
 export const serviceHighlights = [

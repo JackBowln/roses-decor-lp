@@ -17,13 +17,8 @@ useHead({
 </script>
 
 <template>
-  <div class="lp-wrapper">
-    <TheHeader />
-    <HeroSection />
-    <ProductGrid />
-    <PreQuoteForm />
-    <FooterSection />
-    <WhatsAppButton />
-    <Toaster position="top-right" rich-colors />
-  </div>
+  <NuxtLayout>
+    <NuxtPage />
+  </NuxtLayout>
+  <Toaster position="top-right" rich-colors />
 </template>

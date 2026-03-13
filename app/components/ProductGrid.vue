@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ProductCard from './ui/ProductCard.vue'
-import { productCatalog, sectionIds } from '@/lib/site'
+import { productCatalog } from '@/lib/products'
+import { sectionIds } from '@/lib/site'
 </script>
 
 <template>

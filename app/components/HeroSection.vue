@@ -23,10 +23,10 @@ import { sectionIds, siteConfig, whatsappUrl } from '@/lib/site'
       </p>
 
       <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
-        <a :href="`#${sectionIds.preQuote}`"
+        <NuxtLink :to="`/#${sectionIds.preQuote}`"
           class="px-8 py-4 bg-[#C5A059] text-white font-bold uppercase tracking-wide rounded-lg shadow-lg hover:bg-[#B48E48] transition-all hover:-translate-y-1 hero-cta">
           {{ siteConfig.cta.quote }}
-        </a>
+        </NuxtLink>
         <a :href="whatsappUrl" target="_blank" rel="noopener noreferrer"
           class="px-8 py-4 border-2 border-gray-800 text-gray-800 font-bold uppercase tracking-wide rounded-lg hover:bg-gray-800 hover:text-white transition-all hover:-translate-y-1 bg-transparent hero-cta">
           {{ siteConfig.cta.whatsapp }}
