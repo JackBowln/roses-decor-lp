@@ -19,6 +19,7 @@ import {
 import { digitsOnly, formatPhoneMask, formatStateMask, formatZipcodeMask, isValidEmail, isValidPhone, isValidZipcode } from '@/lib/fieldMasks'
 import { calculateInstallationMetersTotal } from '@/lib/quoteWorkspace'
 import { generateQuotePdf } from '@/lib/adminQuotePdf'
+import { createInstallerDispatchLog, createSharedQuoteDocument, deliverQuoteDocument } from '@/lib/quoteWorkspaceApi'
 
 const STORAGE_KEY = 'roses-decor-admin-quote-draft'
 
@@ -59,7 +60,9 @@ const sanitizeRecord = (value: Partial<AdminQuoteRecord> | null | undefined): Ad
 }
 
 const downloadBlob = (filename: string, bytes: Uint8Array, mimeType: string) => {
-  const blob = new Blob([bytes], { type: mimeType })
+  const blobBytes = new Uint8Array(bytes.byteLength)
+  blobBytes.set(bytes)
+  const blob = new Blob([blobBytes], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
 
@@ -329,14 +332,11 @@ export function useAdminQuoteBuilder() {
   }
 
   const shareViaWhatsApp = async (kind: QuoteDocumentKind, phone: string) => {
-    const response = await $fetch<{ ok: true; publicPath: string }>('/api/admin/share-document', {
-      method: 'POST',
-      credentials: 'include',
-      body: {
-        kind,
-        record: record.value,
-      },
+    const response = await createSharedQuoteDocument({
+      kind,
+      record: record.value,
     })
+
     const pdfUrl = `${window.location.origin}${response.publicPath}${kind === 'costureira' || kind === 'instalador' ? '?download=1' : ''}`
     const message = buildWhatsAppDocumentMessage(kind, {
       projectCode: record.value.project.code,
@@ -362,18 +362,14 @@ export function useAdminQuoteBuilder() {
     status: 'enviado' | 'erro'
     errorMessage?: string
   }) => {
-    await $fetch('/api/admin/installers/dispatches/log', {
-      method: 'POST',
-      credentials: 'include',
-      body: {
-        quoteId: input.quoteId,
-        installerId: input.installerId,
-        channel: input.channel,
-        status: input.status,
-        errorMessage: input.errorMessage || '',
-        recipientEmail: record.value.installer.email,
-        recipientWhatsapp: record.value.installer.whatsapp,
-      },
+    await createInstallerDispatchLog({
+      quoteId: input.quoteId,
+      installerId: input.installerId,
+      channel: input.channel,
+      status: input.status,
+      errorMessage: input.errorMessage || '',
+      recipientEmail: record.value.installer.email,
+      recipientWhatsapp: record.value.installer.whatsapp,
     })
   }
 
@@ -425,25 +421,21 @@ export function useAdminQuoteBuilder() {
         return true
       }
 
-      await $fetch('/api/admin/deliver', {
-        method: 'POST',
-        credentials: 'include',
-        body: {
-          quoteId: options?.quoteId,
-          installerId: options?.installerId,
-          channel,
-          kind,
-          record: record.value,
-          recipient: {
-            name:
-              kind === 'cliente'
-                ? record.value.customer.name
-                : kind === 'costureira'
-                  ? record.value.seamstress.name
-                  : record.value.installer.name,
-            email: target.email,
-            whatsapp: target.whatsapp,
-          },
+      await deliverQuoteDocument({
+        quoteId: options?.quoteId,
+        installerId: options?.installerId,
+        channel,
+        kind,
+        record: record.value,
+        recipient: {
+          name:
+            kind === 'cliente'
+              ? record.value.customer.name
+              : kind === 'costureira'
+                ? record.value.seamstress.name
+                : record.value.installer.name,
+          email: target.email,
+          whatsapp: target.whatsapp,
         },
       })
 

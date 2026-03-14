@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { getApiErrorMessage } from '@/lib/apiError'
+import { convertPreQuoteToFinalQuote, fetchPreQuotes } from '@/lib/quoteWorkspaceApi'
+import { matchesSearchQuery } from '@/lib/search'
 import { getPreQuoteStatusLabel, type PreQuoteListItem } from '@/lib/quoteWorkspace'
 
 definePageMeta({
@@ -15,35 +17,17 @@ const search = ref(typeof route.query.search === 'string' ? route.query.search :
 const preQuotes = ref<PreQuoteListItem[]>([])
 
 const filteredPreQuotes = computed(() => {
-  const term = search.value.trim().toLowerCase()
-
-  if (!term) {
-    return preQuotes.value
-  }
-
   return preQuotes.value.filter((record) =>
-    [record.code, record.customer.name, record.customer.locationLabel]
-      .join(' ')
-      .toLowerCase()
-      .includes(term),
+    matchesSearchQuery(search.value, [record.code, record.customer.name, record.customer.locationLabel]),
   )
 })
 
 const loadPreQuotes = async () => {
   try {
     isLoading.value = true
-    const query = new URLSearchParams()
-
-    if (typeof route.query.customerId === 'string' && route.query.customerId) {
-      query.set('customerId', route.query.customerId)
-    }
-
-    if (typeof route.query.search === 'string' && route.query.search) {
-      query.set('search', route.query.search)
-    }
-
-    const response = await $fetch<{ preQuotes: PreQuoteListItem[] }>(`/api/admin/pre-quotes${query.toString() ? `?${query.toString()}` : ''}`, {
-      credentials: 'include',
+    const response = await fetchPreQuotes({
+      customerId: typeof route.query.customerId === 'string' ? route.query.customerId : '',
+      search: typeof route.query.search === 'string' ? route.query.search : '',
     })
 
     preQuotes.value = response.preQuotes
@@ -63,10 +47,7 @@ const viewPdf = (id: string) => {
 const convertToFinalQuote = async (id: string) => {
   try {
     isConverting.value = id
-    const response = await $fetch<{ ok: true; finalQuote: { id: string } }>(`/api/admin/pre-quotes/${id}/convert`, {
-      method: 'POST',
-      credentials: 'include',
-    })
+    const response = await convertPreQuoteToFinalQuote(id)
 
     await loadPreQuotes()
     await navigateTo(`/gestao/orcamentos?quoteId=${response.finalQuote.id}`)

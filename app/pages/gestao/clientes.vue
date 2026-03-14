@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { getApiErrorMessage } from '@/lib/apiError'
+import { fetchCustomers } from '@/lib/quoteWorkspaceApi'
+import { matchesSearchQuery } from '@/lib/search'
 import type { CustomerSummary } from '@/lib/quoteWorkspace'
 
 definePageMeta({
@@ -13,26 +15,14 @@ const isLoading = ref(true)
 const customers = ref<CustomerSummary[]>([])
 
 const filteredCustomers = computed(() => {
-  const term = search.value.trim().toLowerCase()
-
-  if (!term) {
-    return customers.value
-  }
-
   return customers.value.filter((customer) =>
-    [customer.name, customer.whatsapp, customer.locationLabel]
-      .join(' ')
-      .toLowerCase()
-      .includes(term),
-  )
+    matchesSearchQuery(search.value, [customer.name, customer.whatsapp, customer.locationLabel]))
 })
 
 const loadCustomers = async () => {
   try {
     isLoading.value = true
-    const response = await $fetch<{ customers: CustomerSummary[] }>('/api/admin/customers', {
-      credentials: 'include',
-    })
+    const response = await fetchCustomers()
     customers.value = response.customers
   }
   catch (error) {

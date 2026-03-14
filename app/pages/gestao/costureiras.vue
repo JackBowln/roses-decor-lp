@@ -2,6 +2,8 @@
 import { toast } from 'vue-sonner'
 import { getApiErrorMessage } from '@/lib/apiError'
 import { formatPhoneMask } from '@/lib/fieldMasks'
+import { fetchSeamstresses, saveSeamstress as persistSeamstress } from '@/lib/quoteWorkspaceApi'
+import { matchesSearchQuery } from '@/lib/search'
 import type { SeamstressRecord } from '@/lib/quoteWorkspace'
 
 definePageMeta({
@@ -23,17 +25,8 @@ const form = reactive({
 })
 
 const filteredSeamstresses = computed(() => {
-  const term = search.value.trim().toLowerCase()
-
-  if (!term) {
-    return seamstresses.value
-  }
-
   return seamstresses.value.filter((seamstress) =>
-    [seamstress.name, seamstress.email, seamstress.whatsapp]
-      .join(' ')
-      .toLowerCase()
-      .includes(term),
+    matchesSearchQuery(search.value, [seamstress.name, seamstress.email, seamstress.whatsapp, seamstress.notes]),
   )
 })
 
@@ -49,9 +42,7 @@ const resetForm = () => {
 const loadSeamstresses = async () => {
   try {
     isLoading.value = true
-    const response = await $fetch<{ seamstresses: SeamstressRecord[] }>('/api/admin/seamstresses?status=all', {
-      credentials: 'include',
-    })
+    const response = await fetchSeamstresses('all')
     seamstresses.value = response.seamstresses
   }
   catch (error) {
@@ -74,11 +65,7 @@ const editSeamstress = (seamstress: SeamstressRecord) => {
 const saveSeamstress = async () => {
   try {
     isSaving.value = true
-    await $fetch('/api/admin/seamstresses/save', {
-      method: 'POST',
-      credentials: 'include',
-      body: form,
-    })
+    await persistSeamstress(form)
     toast.success(form.id ? 'Costureira atualizada.' : 'Costureira cadastrada.')
     resetForm()
     await loadSeamstresses()

@@ -1,40 +1,24 @@
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { getApiErrorMessage } from '@/lib/apiError'
+import {
+  canPersistQuoteItem,
+  createEmptyQuoteContact,
+  createEmptyQuoteItem,
+  createPublicPreQuotePayload,
+  isPublicQuoteStepValid,
+  type QuoteContact,
+  type QuoteItem,
+  type QuoteSubmissionResult,
+} from '@/lib/publicQuoteForm'
+import { createPublicPreQuote } from '@/lib/quoteWorkspaceApi'
 import { quoteFormOptions, quoteFormSteps } from '@/lib/site'
-import { formatPhoneMask, isValidEmail, isValidPhone } from '@/lib/fieldMasks'
-import type { PublicPreQuoteContact, PublicPreQuoteItem, PreQuoteRecord } from '@/lib/quoteWorkspace'
-
-export interface QuoteItem extends PublicPreQuoteItem {}
-
-interface Contact extends PublicPreQuoteContact {}
-
-interface QuoteSubmissionResult {
-  preQuote: PreQuoteRecord
-  whatsappUrl: string
-}
-
-const createEmptyQuoteItem = (): QuoteItem => ({
-  type: '',
-  env: '',
-  material: '',
-  blackout: 'Sem Blackout',
-  width: '',
-  height: '',
-  dontKnowMeasures: false,
-})
-
-const createEmptyContact = (): Contact => ({
-  name: '',
-  whatsapp: '',
-  email: '',
-  location: '',
-})
+import { formatPhoneMask } from '@/lib/fieldMasks'
 
 export function useQuoteForm() {
   const currentItem = ref<QuoteItem>(createEmptyQuoteItem())
   const items = ref<QuoteItem[]>([])
-  const contact = ref<Contact>(createEmptyContact())
+  const contact = ref<QuoteContact>(createEmptyQuoteContact())
   const currentStep = ref(0)
   const isSubmitting = ref(false)
   const submissionResult = ref<QuoteSubmissionResult | null>(null)
@@ -46,13 +30,13 @@ export function useQuoteForm() {
   const resetForm = () => {
     currentStep.value = 0
     items.value = []
-    contact.value = createEmptyContact()
+    contact.value = createEmptyQuoteContact()
     submissionResult.value = null
     resetCurrentItem()
   }
 
   const persistCurrentItem = () => {
-    if (!currentItem.value.type || !currentItem.value.env || !currentItem.value.material) {
+    if (!canPersistQuoteItem(currentItem.value)) {
       return
     }
 
@@ -141,13 +125,12 @@ export function useQuoteForm() {
     isSubmitting.value = true
 
     try {
-      const response = await $fetch<QuoteSubmissionResult>('/api/public/pre-quotes', {
-        method: 'POST',
-        body: {
+      const response = await createPublicPreQuote(
+        createPublicPreQuotePayload({
           customer: contact.value,
           items: items.value,
-        },
-      })
+        }),
+      )
 
       submissionResult.value = response
       toast.success(`Pré-orçamento ${response.preQuote.code} salvo com sucesso.`)
@@ -160,27 +143,13 @@ export function useQuoteForm() {
     }
   }
 
-  const isStepValid = computed(() => {
-    switch (currentStep.value) {
-      case 0:
-        return currentItem.value.type !== ''
-      case 1:
-        return currentItem.value.env !== ''
-      case 2:
-        return currentItem.value.material !== ''
-      case 3:
-        return currentItem.value.dontKnowMeasures || (currentItem.value.width !== '' && currentItem.value.height !== '')
-      case 4:
-        return items.value.length > 0
-      case 5:
-        return contact.value.name.trim() !== ''
-          && contact.value.location.trim() !== ''
-          && isValidPhone(contact.value.whatsapp)
-          && (!contact.value.email.trim() || isValidEmail(contact.value.email))
-      default:
-        return true
-    }
-  })
+  const isStepValid = computed(() =>
+    isPublicQuoteStepValid({
+      currentStep: currentStep.value,
+      currentItem: currentItem.value,
+      items: items.value,
+      contact: contact.value,
+    }))
 
   return {
     addAnotherRoom,

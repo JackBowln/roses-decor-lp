@@ -1,18 +1,14 @@
 <script setup lang="ts">
-import { toast } from 'vue-sonner'
 import AdminDocumentCard from '@/components/admin/AdminDocumentCard.vue'
 import AdminQuoteItemCard from '@/components/admin/AdminQuoteItemCard.vue'
 import AdminTabs from '@/components/admin/AdminTabs.vue'
-import { getApiErrorMessage } from '@/lib/apiError'
-import { calculateLineItemTotal, formatCurrency, quoteWorkbookTabs } from '@/lib/adminQuote'
-import { normalizeMeters, type FabricRecord, type InstallerDispatchRecord, type InstallerRecord, type SeamstressRecord, type SeamstressStockBalanceView, type StoredFinalQuote } from '@/lib/quoteWorkspace'
+import { formatCurrency, quoteWorkbookTabs } from '@/lib/adminQuote'
+import type { StoredFinalQuote } from '@/lib/quoteWorkspace'
 
 definePageMeta({
   layout: 'admin',
   middleware: 'admin-auth',
 })
-
-const QUOTE_META_STORAGE_KEY = 'roses-decor-admin-quote-meta'
 
 const route = useRoute()
 const { refreshSession } = useAdminSession()
@@ -41,585 +37,73 @@ const {
   zipcodeLookupError,
 } = useAdminQuoteBuilder()
 
-const activeQuoteId = ref<string | null>(null)
-const linkedCustomerId = ref<string | null>(null)
-const linkedPreQuoteId = ref<string | null>(null)
-const linkedPreQuoteCode = ref('')
-const linkedCustomerName = ref('')
-const linkedCustomerLocation = ref('')
 const selectedSeamstressId = ref<string | null>(null)
 const selectedInstallerId = ref<string | null>(null)
 const quoteStatus = ref<StoredFinalQuote['status']>('rascunho')
-const seamstresses = ref<SeamstressRecord[]>([])
-const installers = ref<InstallerRecord[]>([])
-const fabrics = ref<FabricRecord[]>([])
-const stockBalances = ref<SeamstressStockBalanceView[]>([])
-const installerDispatches = ref<InstallerDispatchRecord[]>([])
-const isLoadingInventory = ref(false)
-const isLoadingRecord = ref(false)
-const isSavingRecord = ref(false)
-const lastSavedAt = ref('')
-
-interface QuoteDraftMeta {
-  selectedSeamstressId: string | null
-  selectedInstallerId: string | null
-  quoteStatus: StoredFinalQuote['status']
-}
-
-interface LoadedFinalQuotePayload {
-  id: string
-  customerId: string
-  preQuoteId: string | null
-  seamstressId: string | null
-  installerId: string | null
-  status: StoredFinalQuote['status']
-  record: typeof record.value
-  updatedAt: string
-  customer: {
-    id: string
-    name: string
-    locationLabel: string
-  } | null
-  preQuote: {
-    id: string
-    code: string
-  } | null
-  seamstress: {
-    id: string
-    name: string
-    email: string
-    whatsapp: string
-    status: string
-  } | null
-  installer: {
-    id: string
-    name: string
-    email: string
-    whatsapp: string
-    status: string
-  } | null
-  installerDispatches: InstallerDispatchRecord[]
-}
-
-const applyLoadedQuote = (payload: LoadedFinalQuotePayload) => {
-  record.value = payload.record
-  activeQuoteId.value = payload.id
-  linkedCustomerId.value = payload.customerId
-  linkedPreQuoteId.value = payload.preQuoteId
-  linkedPreQuoteCode.value = payload.preQuote?.code || ''
-  linkedCustomerName.value = payload.customer?.name || ''
-  linkedCustomerLocation.value = payload.customer?.locationLabel || ''
-  selectedSeamstressId.value = payload.seamstressId
-  selectedInstallerId.value = payload.installerId
-  quoteStatus.value = payload.status
-  installerDispatches.value = payload.installerDispatches || []
-  lastSavedAt.value = payload.updatedAt
-}
-
-const restoreDraftMeta = () => {
-  if (!import.meta.client) {
-    return
-  }
-
-  const raw = localStorage.getItem(QUOTE_META_STORAGE_KEY)
-
-  if (!raw) {
-    selectedSeamstressId.value = null
-    selectedInstallerId.value = null
-    quoteStatus.value = 'rascunho'
-    return
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<QuoteDraftMeta>
-    selectedSeamstressId.value = typeof parsed.selectedSeamstressId === 'string' ? parsed.selectedSeamstressId : null
-    selectedInstallerId.value = typeof parsed.selectedInstallerId === 'string' ? parsed.selectedInstallerId : null
-    quoteStatus.value = parsed.quoteStatus === 'pronto' || parsed.quoteStatus === 'cancelado'
-      ? parsed.quoteStatus
-      : 'rascunho'
-  }
-  catch {
-    localStorage.removeItem(QUOTE_META_STORAGE_KEY)
-    selectedSeamstressId.value = null
-    selectedInstallerId.value = null
-    quoteStatus.value = 'rascunho'
-  }
-}
-
-const persistDraftMeta = () => {
-  if (!import.meta.client) {
-    return
-  }
-
-  const payload: QuoteDraftMeta = {
-    selectedSeamstressId: selectedSeamstressId.value,
-    selectedInstallerId: selectedInstallerId.value,
-    quoteStatus: quoteStatus.value,
-  }
-
-  localStorage.setItem(QUOTE_META_STORAGE_KEY, JSON.stringify(payload))
-}
-
-const clearDraftMeta = () => {
-  if (!import.meta.client) {
-    return
-  }
-
-  localStorage.removeItem(QUOTE_META_STORAGE_KEY)
-}
-
-const activeSeamstresses = computed(() => {
-  const currentId = selectedSeamstressId.value
-
-  return seamstresses.value.filter((seamstress) =>
-    seamstress.status === 'ativa' || seamstress.id === currentId,
-  )
+const {
+  activeFabrics,
+  activeInstallers,
+  activeSeamstresses,
+  fabricPriceById,
+  loadInventoryReferences,
+  stockBalances,
+  stockByFabricId,
+} = useAdminQuoteReferences({
+  record,
+  selectedSeamstressId,
+  selectedInstallerId,
 })
 
-const activeInstallers = computed(() => {
-  const currentId = selectedInstallerId.value
-
-  return installers.value.filter((installer) =>
-    installer.status === 'ativo' || installer.id === currentId,
-  )
+const {
+  activeQuoteId,
+  installerDispatches,
+  isLoadingRecord,
+  isSavingRecord,
+  linkedCustomerId,
+  linkedCustomerLocation,
+  linkedCustomerName,
+  linkedPreQuoteCode,
+  linkedPreQuoteId,
+  loadInstallerDispatches,
+  restoreDraftMeta,
+  saveCurrentQuote,
+  startEmptyQuote,
+  summaryStats,
+} = useAdminQuoteWorkspace({
+  record,
+  resetRecord,
+  isReady,
+  selectedSeamstressId,
+  selectedInstallerId,
+  quoteStatus,
+  totals,
 })
 
-const activeFabrics = computed(() => {
-  const linkedFabricIds = new Set(
-    record.value.items.flatMap((item) =>
-      (item.fabricConsumptions || [])
-        .map((consumption) => consumption.fabricId)
-        .filter(Boolean),
-    ),
-  )
-
-  return fabrics.value.filter((fabric) => fabric.status === 'ativo' || linkedFabricIds.has(fabric.id))
+const { documentEntries, handleDocumentDelivery } = useAdminQuoteDocuments({
+  record,
+  documents,
+  customerValidation,
+  activeQuoteId,
+  selectedSeamstressId,
+  selectedInstallerId,
+  deliverDocument,
+  onInstallerDelivered: loadInstallerDispatches,
 })
 
-const stockByFabricId = computed<Record<string, number>>(() =>
-  stockBalances.value.reduce<Record<string, number>>((accumulator, balance) => {
-    accumulator[balance.fabricId] = balance.balanceMeters
-    return accumulator
-  }, {}))
+const seamstressPreviewLines = computed(() =>
+  documents.value.find((document) => document.kind === 'costureira')?.summary.lines.slice(0, 8) || [])
 
-const fabricPriceById = computed<Record<string, number>>(() =>
-  fabrics.value.reduce<Record<string, number>>((accumulator, fabric) => {
-    accumulator[fabric.id] = fabric.pricePerMeter
-    return accumulator
-  }, {}))
-
-const syncAutomaticMaterialPricing = () => {
-  record.value.items.forEach((item) => {
-    const quantity = Math.max(item.quantity || 1, 1)
-    let materialTotal = 0
-    let hasPricedConsumptions = false
-
-    for (const consumption of item.fabricConsumptions || []) {
-      const quantityMeters = normalizeMeters(consumption.quantityMeters)
-      const pricePerMeter = consumption.fabricId ? fabricPriceById.value[consumption.fabricId] : undefined
-
-      if (typeof pricePerMeter !== 'number' || pricePerMeter <= 0 || !quantityMeters || quantityMeters <= 0) {
-        continue
-      }
-
-      hasPricedConsumptions = true
-      materialTotal += quantityMeters * pricePerMeter
-    }
-
-    if (hasPricedConsumptions) {
-      item.unitPrice = Math.round((materialTotal / quantity) * 100) / 100
-    }
-  })
-}
-
-const syncSelectedSeamstressSnapshot = () => {
-  if (!selectedSeamstressId.value) {
-    record.value.seamstress.name = ''
-    record.value.seamstress.email = ''
-    record.value.seamstress.whatsapp = ''
-    return
-  }
-
-  const seamstress = seamstresses.value.find((entry) => entry.id === selectedSeamstressId.value) || null
-
-  if (!seamstress) {
-    return
-  }
-
-  record.value.seamstress.name = seamstress.name
-  record.value.seamstress.email = seamstress.email
-  record.value.seamstress.whatsapp = seamstress.whatsapp
-}
-
-const syncSelectedInstallerSnapshot = () => {
-  if (!selectedInstallerId.value) {
-    record.value.installer.name = ''
-    record.value.installer.email = ''
-    record.value.installer.whatsapp = ''
-    return
-  }
-
-  const installer = installers.value.find((entry) => entry.id === selectedInstallerId.value) || null
-
-  if (!installer) {
-    return
-  }
-
-  record.value.installer.name = installer.name
-  record.value.installer.email = installer.email
-  record.value.installer.whatsapp = installer.whatsapp
-}
-
-const loadInventoryReferences = async () => {
-  try {
-    isLoadingInventory.value = true
-    const [seamstressResponse, installerResponse, fabricResponse] = await Promise.all([
-      $fetch<{ seamstresses: SeamstressRecord[] }>('/api/admin/seamstresses?status=all', {
-        credentials: 'include',
-      }),
-      $fetch<{ installers: InstallerRecord[] }>('/api/admin/installers?status=all', {
-        credentials: 'include',
-      }),
-      $fetch<{ fabrics: FabricRecord[] }>('/api/admin/fabrics?status=all', {
-        credentials: 'include',
-      }),
-    ])
-
-    seamstresses.value = seamstressResponse.seamstresses
-    installers.value = installerResponse.installers
-    fabrics.value = fabricResponse.fabrics
-    syncSelectedSeamstressSnapshot()
-    syncSelectedInstallerSnapshot()
-  }
-  catch (error) {
-    toast.error(getApiErrorMessage(error, 'Não foi possível carregar costureiras, instaladores e tecidos.'))
-  }
-  finally {
-    isLoadingInventory.value = false
-  }
-}
-
-const loadStockBalances = async () => {
-  if (!selectedSeamstressId.value) {
-    stockBalances.value = []
-    return
-  }
-
-  try {
-    const response = await $fetch<{ balances: SeamstressStockBalanceView[] }>(`/api/admin/stocks?seamstressId=${selectedSeamstressId.value}`, {
-      credentials: 'include',
-    })
-    stockBalances.value = response.balances
-  }
-  catch (error) {
-    stockBalances.value = []
-    toast.error(getApiErrorMessage(error, 'Não foi possível carregar o saldo da costureira.'))
-  }
-}
-
-watch(selectedSeamstressId, async (value) => {
-  syncSelectedSeamstressSnapshot()
-  await loadStockBalances()
-})
-
-watch(selectedInstallerId, () => {
-  syncSelectedInstallerSnapshot()
-})
-
-watch(
-  () => JSON.stringify({
-    fabrics: fabrics.value.map((fabric) => [fabric.id, fabric.pricePerMeter]),
-    items: record.value.items.map((item) => ({
-      id: item.id,
-      quantity: item.quantity,
-      fabricConsumptions: (item.fabricConsumptions || []).map((consumption) => ({
-        fabricId: consumption.fabricId,
-        quantityMeters: consumption.quantityMeters,
-      })),
-    })),
-  }),
-  () => {
-    syncAutomaticMaterialPricing()
-  },
-  { immediate: true },
-)
-
-const loadQuoteFromRoute = async () => {
-  const quoteId = typeof route.query.quoteId === 'string' ? route.query.quoteId : ''
-
-  if (!quoteId) {
-    activeQuoteId.value = null
-    linkedCustomerId.value = null
-    linkedPreQuoteId.value = null
-    linkedPreQuoteCode.value = ''
-    linkedCustomerName.value = ''
-    linkedCustomerLocation.value = ''
-    stockBalances.value = []
-    installerDispatches.value = []
-    lastSavedAt.value = ''
-    restoreDraftMeta()
-    return
-  }
-
-  try {
-    isLoadingRecord.value = true
-    const payload = await $fetch<LoadedFinalQuotePayload>(`/api/admin/final-quotes/${quoteId}`, {
-      credentials: 'include',
-    })
-    applyLoadedQuote(payload)
-    clearDraftMeta()
-  }
-  catch (error) {
-    toast.error(getApiErrorMessage(error, 'Não foi possível carregar o orçamento final.'))
-  }
-  finally {
-    isLoadingRecord.value = false
-  }
-}
-
-const loadInstallerDispatches = async () => {
-  if (!activeQuoteId.value) {
-    installerDispatches.value = []
-    return
-  }
-
-  try {
-    const response = await $fetch<{ dispatches: InstallerDispatchRecord[] }>(`/api/admin/installers/dispatches?quoteId=${activeQuoteId.value}`, {
-      credentials: 'include',
-    })
-    installerDispatches.value = response.dispatches
-  }
-  catch (error) {
-    toast.error(getApiErrorMessage(error, 'Não foi possível carregar o histórico do instalador.'))
-  }
-}
-
-const saveCurrentQuote = async () => {
-  try {
-    isSavingRecord.value = true
-    const previousCode = record.value.project.code
-    const hasFabricConsumptions = record.value.items.some((item) =>
-      (item.fabricConsumptions || []).some((consumption) => Boolean(consumption.fabricId) || Boolean(consumption.quantityMeters)),
-    )
-
-    if (hasFabricConsumptions && !selectedSeamstressId.value) {
-      toast.error('Selecione a costureira antes de salvar baixas de tecido.')
-      return
-    }
-
-    const response = await $fetch<{ ok: true; finalQuote: LoadedFinalQuotePayload }>('/api/admin/final-quotes/save', {
-      method: 'POST',
-      credentials: 'include',
-      body: {
-        id: activeQuoteId.value,
-        customerId: linkedCustomerId.value,
-        preQuoteId: linkedPreQuoteId.value,
-        seamstressId: selectedSeamstressId.value,
-        installerId: selectedInstallerId.value,
-        status: quoteStatus.value,
-        record: record.value,
-      },
-    })
-
-    applyLoadedQuote(response.finalQuote)
-    clearDraftMeta()
-
-    if (typeof route.query.quoteId !== 'string' || route.query.quoteId !== response.finalQuote.id) {
-      await navigateTo({
-        path: '/gestao/orcamentos',
-        query: {
-          quoteId: response.finalQuote.id,
-        },
-      }, { replace: true })
-    }
-
-    toast.success(
-      response.finalQuote.record.project.code !== previousCode
-        ? 'Orçamento salvo. O código foi ajustado automaticamente para evitar duplicidade.'
-        : 'Orçamento salvo com sucesso.',
-    )
-  }
-  catch (error) {
-    toast.error(getApiErrorMessage(error, 'Não foi possível salvar o orçamento.'))
-  }
-  finally {
-    isSavingRecord.value = false
-  }
-}
-
-const startEmptyQuote = async () => {
-  resetRecord()
-  clearDraftMeta()
-  activeQuoteId.value = null
-  linkedCustomerId.value = null
-  linkedPreQuoteId.value = null
-  linkedPreQuoteCode.value = ''
-  linkedCustomerName.value = ''
-  linkedCustomerLocation.value = ''
-  selectedSeamstressId.value = null
-  selectedInstallerId.value = null
-  quoteStatus.value = 'rascunho'
-  stockBalances.value = []
-  installerDispatches.value = []
-  lastSavedAt.value = ''
-  await navigateTo('/gestao/orcamentos', { replace: true })
-}
+const installerPreviewLines = computed(() =>
+  documents.value.find((document) => document.kind === 'instalador')?.summary.lines.slice(0, 8) || [])
 
 onMounted(() => {
   if (typeof route.query.quoteId !== 'string') {
     restoreDraftMeta()
   }
+
   void refreshSession()
   void loadInventoryReferences()
 })
-
-watch([selectedSeamstressId, selectedInstallerId, quoteStatus], () => {
-  if (!activeQuoteId.value && typeof route.query.quoteId !== 'string') {
-    persistDraftMeta()
-  }
-})
-
-watch(isReady, (ready) => {
-  if (ready) {
-    void loadQuoteFromRoute()
-  }
-}, { immediate: true })
-
-watch(() => route.query.quoteId, () => {
-  if (isReady.value) {
-    void loadQuoteFromRoute()
-  }
-})
-
-const summaryStats = computed(() => [
-  {
-    label: 'Itens no orçamento',
-    value: String(record.value.items.length).padStart(2, '0'),
-  },
-  {
-    label: 'Total estimado',
-    value: formatCurrency(totals.value.grandTotal),
-  },
-  {
-    label: 'Validade',
-    value: record.value.project.validUntil || 'Sem data',
-  },
-  {
-    label: 'Último salvamento',
-    value: lastSavedAt.value ? new Date(lastSavedAt.value).toLocaleString('pt-BR') : 'Não salvo',
-  },
-])
-
-const getDocumentBlockReason = (kind: 'cliente' | 'costureira' | 'instalador', channel: 'email' | 'whatsapp') => {
-  if (kind === 'cliente') {
-    if (!record.value.customer.name.trim()) {
-      return 'Preencha o nome do cliente antes de enviar o orçamento.'
-    }
-
-    if (channel === 'email' && !customerValidation.value.emailValid) {
-      return 'Informe um e-mail válido do cliente.'
-    }
-
-    if (channel === 'whatsapp' && !customerValidation.value.phoneValid) {
-      return 'Informe um WhatsApp válido do cliente.'
-    }
-
-    if (record.value.customer.zipcode && !customerValidation.value.zipcodeValid) {
-      return 'Corrija o CEP do cliente antes de enviar o orçamento.'
-    }
-
-    if (!record.value.items.some((item) => item.room.trim() && item.width && item.height && calculateLineItemTotal(item) > 0)) {
-      return 'Inclua ao menos um item com ambiente, medidas e valor antes do envio.'
-    }
-
-    if (channel === 'email' && !customerValidation.value.phoneValid) {
-      return 'O orçamento do cliente só é liberado quando o WhatsApp do cliente também estiver válido.'
-    }
-
-    if (channel === 'whatsapp' && !customerValidation.value.emailValid) {
-      return 'O orçamento do cliente só é liberado quando o e-mail do cliente também estiver válido.'
-    }
-
-    return ''
-  }
-
-  if (kind === 'costureira') {
-    if (!selectedSeamstressId.value) {
-      return 'Selecione a costureira responsável antes de enviar o pedido.'
-    }
-
-    if (channel === 'email' && !record.value.seamstress.email.trim()) {
-      return 'A costureira selecionada precisa ter um e-mail cadastrado.'
-    }
-
-    if (channel === 'whatsapp' && !record.value.seamstress.whatsapp.trim()) {
-      return 'A costureira selecionada precisa ter um WhatsApp cadastrado.'
-    }
-
-    return ''
-  }
-
-  if (!activeQuoteId.value) {
-    return 'Salve o orçamento antes de enviar a ficha do instalador.'
-  }
-
-  if (!selectedInstallerId.value) {
-    return 'Selecione o instalador responsável.'
-  }
-
-  if (!record.value.project.installationDate) {
-    return 'Defina a data de instalação ou entrega antes do envio.'
-  }
-
-  const installableItems = record.value.items.filter((item) => item.installationIncluded === 'SIM')
-
-  if (installableItems.length === 0) {
-    return 'Adicione ao menos um item com instalação para liberar a ficha do instalador.'
-  }
-
-  if (installableItems.some((item) => !item.width && !item.installationMeters)) {
-    return 'Preencha a largura ou os metros de instalação dos itens instaláveis.'
-  }
-
-  if (!record.value.customer.name.trim()) {
-    return 'Preencha o nome do cliente.'
-  }
-
-  if (!record.value.customer.phone.trim() && !record.value.customer.email.trim()) {
-    return 'Informe ao menos um contato do cliente para a ficha de instalação.'
-  }
-
-  if (channel === 'email' && !record.value.installer.email.trim()) {
-    return 'O instalador selecionado precisa ter um e-mail cadastrado.'
-  }
-
-  if (channel === 'whatsapp' && !record.value.installer.whatsapp.trim()) {
-    return 'O instalador selecionado precisa ter um WhatsApp cadastrado.'
-  }
-
-  return ''
-}
-
-const documentEntries = computed(() =>
-  documents.value.map((document) => ({
-    ...document,
-    ready: document.kind === 'instalador'
-      ? document.ready && Boolean(activeQuoteId.value && selectedInstallerId.value)
-      : document.ready,
-    emailDisabledReason: getDocumentBlockReason(document.kind, 'email'),
-    whatsappDisabledReason: getDocumentBlockReason(document.kind, 'whatsapp'),
-  })))
-
-const handleDocumentDelivery = async (kind: 'cliente' | 'costureira' | 'instalador', channel: 'email' | 'whatsapp') => {
-  const delivered = await deliverDocument(kind, channel, {
-    quoteId: activeQuoteId.value,
-    installerId: selectedInstallerId.value,
-  })
-
-  if (delivered && kind === 'instalador') {
-    await loadInstallerDispatches()
-  }
-}
 </script>
 
 <template>
@@ -939,7 +423,7 @@ const handleDocumentDelivery = async (kind: 'cliente' | 'costureira' | 'instalad
           <div class="preview-block">
             <span class="section-kicker">Prévia</span>
             <ul>
-              <li v-for="line in documents[1].summary.lines.slice(0, 8)" :key="line">{{ line }}</li>
+              <li v-for="line in seamstressPreviewLines" :key="line">{{ line }}</li>
             </ul>
           </div>
 
@@ -1013,7 +497,7 @@ const handleDocumentDelivery = async (kind: 'cliente' | 'costureira' | 'instalad
           <div class="preview-block">
             <span class="section-kicker">Prévia</span>
             <ul>
-              <li v-for="line in documents[2].summary.lines.slice(0, 8)" :key="line">{{ line }}</li>
+              <li v-for="line in installerPreviewLines" :key="line">{{ line }}</li>
             </ul>
           </div>
 

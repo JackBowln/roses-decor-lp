@@ -2,6 +2,8 @@
 import { toast } from 'vue-sonner'
 import { getApiErrorMessage } from '@/lib/apiError'
 import { formatPhoneMask } from '@/lib/fieldMasks'
+import { fetchInstallers, saveInstaller as persistInstaller } from '@/lib/quoteWorkspaceApi'
+import { matchesSearchQuery } from '@/lib/search'
 import type { InstallerRecord } from '@/lib/quoteWorkspace'
 
 definePageMeta({
@@ -23,17 +25,8 @@ const form = reactive({
 })
 
 const filteredInstallers = computed(() => {
-  const term = search.value.trim().toLowerCase()
-
-  if (!term) {
-    return installers.value
-  }
-
   return installers.value.filter((installer) =>
-    [installer.name, installer.email, installer.whatsapp, installer.notes]
-      .join(' ')
-      .toLowerCase()
-      .includes(term),
+    matchesSearchQuery(search.value, [installer.name, installer.email, installer.whatsapp, installer.notes]),
   )
 })
 
@@ -49,9 +42,7 @@ const resetForm = () => {
 const loadInstallers = async () => {
   try {
     isLoading.value = true
-    const response = await $fetch<{ installers: InstallerRecord[] }>('/api/admin/installers?status=all', {
-      credentials: 'include',
-    })
+    const response = await fetchInstallers('all')
     installers.value = response.installers
   }
   catch (error) {
@@ -74,11 +65,7 @@ const editInstaller = (installer: InstallerRecord) => {
 const saveInstallerRecord = async () => {
   try {
     isSaving.value = true
-    await $fetch('/api/admin/installers/save', {
-      method: 'POST',
-      credentials: 'include',
-      body: form,
-    })
+    await persistInstaller(form)
     toast.success(form.id ? 'Instalador atualizado.' : 'Instalador cadastrado.')
     resetForm()
     await loadInstallers()

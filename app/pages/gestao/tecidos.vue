@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { getApiErrorMessage } from '@/lib/apiError'
+import { fetchFabrics, saveFabric as persistFabric } from '@/lib/quoteWorkspaceApi'
+import { matchesSearchQuery } from '@/lib/search'
 import type { FabricRecord } from '@/lib/quoteWorkspace'
 
 definePageMeta({
@@ -22,17 +24,8 @@ const form = reactive({
 })
 
 const filteredFabrics = computed(() => {
-  const term = search.value.trim().toLowerCase()
-
-  if (!term) {
-    return fabrics.value
-  }
-
   return fabrics.value.filter((fabric) =>
-    [fabric.name, fabric.category, fabric.colorOrCollection]
-      .join(' ')
-      .toLowerCase()
-      .includes(term),
+    matchesSearchQuery(search.value, [fabric.name, fabric.category, fabric.colorOrCollection]),
   )
 })
 
@@ -48,9 +41,7 @@ const resetForm = () => {
 const loadFabrics = async () => {
   try {
     isLoading.value = true
-    const response = await $fetch<{ fabrics: FabricRecord[] }>('/api/admin/fabrics?status=all', {
-      credentials: 'include',
-    })
+    const response = await fetchFabrics('all')
     fabrics.value = response.fabrics
   }
   catch (error) {
@@ -73,11 +64,7 @@ const editFabric = (fabric: FabricRecord) => {
 const saveFabric = async () => {
   try {
     isSaving.value = true
-    await $fetch('/api/admin/fabrics/save', {
-      method: 'POST',
-      credentials: 'include',
-      body: form,
-    })
+    await persistFabric(form)
     toast.success(form.id ? 'Tecido atualizado.' : 'Tecido cadastrado.')
     resetForm()
     await loadFabrics()

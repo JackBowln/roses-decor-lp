@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
 import { getApiErrorMessage } from '@/lib/apiError'
+import {
+  createManualStockMovement,
+  createStockTransfer,
+  fetchFabrics,
+  fetchSeamstresses,
+  fetchStockBalances,
+  fetchStockMovements,
+} from '@/lib/quoteWorkspaceApi'
 import type { FabricRecord, SeamstressRecord, SeamstressStockBalanceView, StockMovementListItem } from '@/lib/quoteWorkspace'
 
 definePageMeta({
@@ -41,12 +49,8 @@ const transferForm = reactive({
 
 const loadReferences = async () => {
   const [seamstressResponse, fabricResponse] = await Promise.all([
-    $fetch<{ seamstresses: SeamstressRecord[] }>('/api/admin/seamstresses?status=all', {
-      credentials: 'include',
-    }),
-    $fetch<{ fabrics: FabricRecord[] }>('/api/admin/fabrics?status=all', {
-      credentials: 'include',
-    }),
+    fetchSeamstresses('all'),
+    fetchFabrics('all'),
   ])
 
   seamstresses.value = seamstressResponse.seamstresses
@@ -54,51 +58,21 @@ const loadReferences = async () => {
 }
 
 const loadBalances = async () => {
-  const query = new URLSearchParams()
-
-  if (seamstressFilter.value) {
-    query.set('seamstressId', seamstressFilter.value)
-  }
-
-  if (fabricFilter.value) {
-    query.set('fabricId', fabricFilter.value)
-  }
-
-  if (search.value) {
-    query.set('search', search.value)
-  }
-
-  const response = await $fetch<{ balances: SeamstressStockBalanceView[] }>(`/api/admin/stocks${query.toString() ? `?${query.toString()}` : ''}`, {
-    credentials: 'include',
+  const response = await fetchStockBalances({
+    seamstressId: seamstressFilter.value,
+    fabricId: fabricFilter.value,
+    search: search.value,
   })
   balances.value = response.balances
 }
 
 const loadMovements = async () => {
-  const query = new URLSearchParams()
-
-  if (seamstressFilter.value) {
-    query.set('seamstressId', seamstressFilter.value)
-  }
-
-  if (fabricFilter.value) {
-    query.set('fabricId', fabricFilter.value)
-  }
-
-  if (quoteFilter.value) {
-    query.set('quoteId', quoteFilter.value)
-  }
-
-  if (dateFrom.value) {
-    query.set('dateFrom', dateFrom.value)
-  }
-
-  if (dateTo.value) {
-    query.set('dateTo', dateTo.value)
-  }
-
-  const response = await $fetch<{ movements: StockMovementListItem[] }>(`/api/admin/stock-movements${query.toString() ? `?${query.toString()}` : ''}`, {
-    credentials: 'include',
+  const response = await fetchStockMovements({
+    seamstressId: seamstressFilter.value,
+    fabricId: fabricFilter.value,
+    quoteId: quoteFilter.value,
+    dateFrom: dateFrom.value,
+    dateTo: dateTo.value,
   })
   movements.value = response.movements
 }
@@ -129,11 +103,7 @@ const refreshInventoryData = async () => {
 const submitManualMovement = async () => {
   try {
     isSubmittingManual.value = true
-    await $fetch('/api/admin/stocks/manual', {
-      method: 'POST',
-      credentials: 'include',
-      body: manualForm,
-    })
+    await createManualStockMovement(manualForm)
     toast.success('Movimentação manual registrada.')
     manualForm.quantityMeters = null
     manualForm.notes = ''
@@ -151,11 +121,7 @@ const submitManualMovement = async () => {
 const submitTransfer = async () => {
   try {
     isSubmittingTransfer.value = true
-    await $fetch('/api/admin/stocks/transfer', {
-      method: 'POST',
-      credentials: 'include',
-      body: transferForm,
-    })
+    await createStockTransfer(transferForm)
     toast.success('Transferência registrada.')
     transferForm.quantityMeters = null
     transferForm.notes = ''
