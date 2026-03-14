@@ -270,6 +270,7 @@ export function useAdminQuoteBuilder() {
 
   const lookupCustomerZipcode = async (force = false) => {
     const zipcode = digitsOnly(record.value.customer.zipcode)
+    const previousResolvedZipcode = lastResolvedZipcode.value
 
     if (zipcode.length !== 8) {
       if (force && zipcode.length > 0) {
@@ -292,13 +293,30 @@ export function useAdminQuoteBuilder() {
         throw new Error('CEP não encontrado.')
       }
 
-      if (!record.value.customer.address.trim()) {
+      // If the CEP changed, refresh the resolved address fields instead of
+      // preserving stale values from the previous lookup.
+      if (digitsOnly(record.value.customer.zipcode) !== zipcode) {
+        return
+      }
+
+      const shouldOverwriteResolvedFields = force || zipcode !== previousResolvedZipcode
+
+      if (shouldOverwriteResolvedFields || !record.value.customer.address.trim()) {
         record.value.customer.address = response.logradouro || ''
       }
 
-      record.value.customer.neighborhood = response.bairro || record.value.customer.neighborhood
-      record.value.customer.city = response.localidade || record.value.customer.city
-      record.value.customer.state = formatStateMask(response.uf || record.value.customer.state)
+      if (shouldOverwriteResolvedFields || !record.value.customer.neighborhood.trim()) {
+        record.value.customer.neighborhood = response.bairro || ''
+      }
+
+      if (shouldOverwriteResolvedFields || !record.value.customer.city.trim()) {
+        record.value.customer.city = response.localidade || ''
+      }
+
+      if (shouldOverwriteResolvedFields || !record.value.customer.state.trim()) {
+        record.value.customer.state = formatStateMask(response.uf || '')
+      }
+
       record.value.customer.zipcode = formatZipcodeMask(response.cep || zipcode)
       lastResolvedZipcode.value = zipcode
     }
