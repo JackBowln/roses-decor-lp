@@ -55,8 +55,8 @@ export default defineEventHandler(async (event) => {
 
   const pdf = generatePreQuotePdf({ customer, preQuote })
   const relativePath = `pre-quotes/${preQuote.id}/${pdf.filename}`
-  const pdfPath = await saveWorkspaceDocument(relativePath, pdf.bytes)
-  const updatedPreQuote = await updatePreQuoteDocumentPath(preQuote.id, pdfPath)
+  const pdfDocumentId = await saveWorkspaceDocument(relativePath, pdf.bytes)
+  const updatedPreQuote = await updatePreQuoteDocumentPath(preQuote.id, pdfDocumentId)
   const whatsappMessage = buildPublicPreQuoteWhatsAppMessage(body.customer, updatedPreQuote)
 
   return {

@@ -1,4 +1,3 @@
-import { basename } from 'node:path'
 import { createError, setHeader } from 'h3'
 import { assertAdminSession } from '../../../../utils/adminAuth'
 import { findPreQuoteById, readWorkspaceDocument } from '../../../../utils/quoteWorkspaceStore'
@@ -15,8 +14,16 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const bytes = await readWorkspaceDocument(preQuote.pdfPath)
-  setHeader(event, 'Content-Type', 'application/pdf')
-  setHeader(event, 'Content-Disposition', `inline; filename="${basename(preQuote.pdfPath)}"`)
-  return bytes
+  const document = await readWorkspaceDocument(preQuote.pdfPath)
+
+  if (!document) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: 'Arquivo do pré-orçamento não encontrado.',
+    })
+  }
+
+  setHeader(event, 'Content-Type', document.mimeType)
+  setHeader(event, 'Content-Disposition', `inline; filename="${document.filename}"`)
+  return document.bytes
 })
