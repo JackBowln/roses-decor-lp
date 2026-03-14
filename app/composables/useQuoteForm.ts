@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
+import { getApiErrorMessage } from '@/lib/apiError'
 import { quoteFormOptions, quoteFormSteps } from '@/lib/site'
 import { formatPhoneMask, isValidEmail, isValidPhone } from '@/lib/fieldMasks'
 import type { PublicPreQuoteContact, PublicPreQuoteItem, PreQuoteRecord } from '@/lib/quoteWorkspace'
@@ -152,14 +153,7 @@ export function useQuoteForm() {
       toast.success(`Pré-orçamento ${response.preQuote.code} salvo com sucesso.`)
     }
     catch (error) {
-      const message = typeof error === 'object'
-        && error !== null
-        && 'data' in error
-        && typeof (error as { data?: { statusMessage?: string } }).data?.statusMessage === 'string'
-        ? (error as { data: { statusMessage: string } }).data.statusMessage
-        : 'Não foi possível salvar o pré-orçamento.'
-
-      toast.error(message)
+      toast.error(getApiErrorMessage(error, 'Não foi possível salvar o pré-orçamento.'))
     }
     finally {
       isSubmitting.value = false

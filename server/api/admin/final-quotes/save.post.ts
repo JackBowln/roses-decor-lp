@@ -7,6 +7,8 @@ interface SaveFinalQuotePayload {
   id?: string | null
   customerId?: string | null
   preQuoteId?: string | null
+  seamstressId?: string | null
+  status?: 'rascunho' | 'pronto' | 'cancelado'
   record?: AdminQuoteRecord
 }
 
@@ -25,6 +27,8 @@ export default defineEventHandler(async (event) => {
     id: body.id,
     customerId: body.customerId,
     preQuoteId: body.preQuoteId,
+    seamstressId: body.seamstressId,
+    status: body.status,
     record: body.record,
   })
   const finalQuote = await findFinalQuoteById(saved.id)

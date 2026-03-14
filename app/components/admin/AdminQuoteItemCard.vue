@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   blackoutOptions,
+  createEmptyItemFabricConsumption,
   fabricOptions,
   mountTypeOptions,
   openingSideOptions,
@@ -10,11 +11,15 @@ import {
   yesNoOptions,
   type QuoteLineItem,
 } from '@/lib/adminQuote'
+import type { FabricRecord } from '@/lib/quoteWorkspace'
 
 const props = defineProps<{
   item: QuoteLineItem
   index: number
   disableRemove: boolean
+  fabrics: FabricRecord[]
+  stockByFabricId: Record<string, number>
+  seamstressSelected: boolean
 }>()
 
 defineEmits<{
@@ -31,7 +36,38 @@ const parseNullableNumber = (value: string) => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const parseNullableMeters = (value: string) => {
+  if (!value.trim()) {
+    return null
+  }
+
+  const parsed = Number(value.replace(',', '.'))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 const item = toRef(props, 'item')
+
+const addConsumption = () => {
+  item.value.fabricConsumptions = [...(item.value.fabricConsumptions || []), createEmptyItemFabricConsumption()]
+}
+
+const removeConsumption = (id: string) => {
+  item.value.fabricConsumptions = (item.value.fabricConsumptions || []).filter((consumption) => consumption.id !== id)
+}
+
+const getStockHint = (fabricId: string) => {
+  if (!fabricId) {
+    return ''
+  }
+
+  const balance = props.stockByFabricId[fabricId]
+
+  if (typeof balance !== 'number') {
+    return 'Sem saldo cadastrado para esta costureira.'
+  }
+
+  return `Saldo atual: ${balance.toFixed(2)} m`
+}
 </script>
 
 <template>
@@ -198,6 +234,51 @@ const item = toRef(props, 'item')
       <span>Observações</span>
       <input v-model="item.notes" type="text" placeholder="Recorte, emenda, obstáculo, ponto elétrico...">
     </label>
+
+    <div class="consumption-shell">
+      <div class="consumption-head">
+        <div>
+          <span class="item-card-kicker">Estoque</span>
+          <h4>Consumo de tecido por item</h4>
+        </div>
+        <button type="button" class="ghost-button" @click="addConsumption">Adicionar tecido</button>
+      </div>
+
+      <p v-if="!seamstressSelected" class="consumption-empty">
+        Selecione a costureira responsável na aba de costura antes de informar o consumo.
+      </p>
+
+      <div v-else-if="!item.fabricConsumptions.length" class="consumption-empty">
+        Nenhum consumo vinculado a este item.
+      </div>
+
+      <div v-else class="consumption-list">
+        <div v-for="consumption in item.fabricConsumptions" :key="consumption.id" class="consumption-row">
+          <label class="field">
+            <span>Tecido do estoque</span>
+            <select v-model="consumption.fabricId">
+              <option value="">Selecione</option>
+              <option v-for="fabric in fabrics" :key="fabric.id" :value="fabric.id">
+                {{ [fabric.name, fabric.colorOrCollection].filter(Boolean).join(' • ') }}
+              </option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Consumo (m)</span>
+            <input :value="consumption.quantityMeters ?? ''" type="number" min="0" step="0.01" placeholder="8.50"
+              @input="consumption.quantityMeters = parseNullableMeters(($event.target as HTMLInputElement).value)">
+          </label>
+
+          <div class="consumption-meta">
+            <small class="field-hint">{{ getStockHint(consumption.fabricId) || 'Selecione o tecido para consultar saldo.' }}</small>
+            <button type="button" class="ghost-button ghost-button-danger" @click="removeConsumption(consumption.id)">
+              Remover tecido
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </article>
 </template>
 
@@ -304,10 +385,65 @@ const item = toRef(props, 'item')
   box-shadow: 0 0 0 4px rgba(197, 160, 89, 0.12);
 }
 
+.consumption-shell {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(247, 239, 226, 0.56);
+  border: 1px solid rgba(197, 160, 89, 0.16);
+}
+
+.consumption-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.consumption-head h4 {
+  color: var(--text-dark);
+  font-size: 1.02rem;
+}
+
+.consumption-empty {
+  color: rgba(61, 61, 61, 0.76);
+  font-size: 0.92rem;
+}
+
+.consumption-list {
+  display: grid;
+  gap: 12px;
+}
+
+.consumption-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(180px, 0.55fr) minmax(200px, 0.65fr);
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.consumption-meta {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+}
+
+.field-hint {
+  color: rgba(61, 61, 61, 0.72);
+  font-size: 0.82rem;
+}
+
 @media (max-width: 1024px) {
   .fields-grid-3,
   .fields-grid-4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .consumption-row {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
@@ -325,6 +461,15 @@ const item = toRef(props, 'item')
   .fields-grid-3,
   .fields-grid-4 {
     grid-template-columns: 1fr;
+  }
+
+  .consumption-head,
+  .consumption-row {
+    grid-template-columns: 1fr;
+  }
+
+  .consumption-head {
+    display: grid;
   }
 
   .item-card-actions,

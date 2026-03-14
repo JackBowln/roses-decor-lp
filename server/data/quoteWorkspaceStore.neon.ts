@@ -1,24 +1,40 @@
 import { basename } from 'node:path'
 import { createError } from 'h3'
 import { neon } from '@netlify/neon'
+import { Pool, neonConfig, type PoolClient } from '@neondatabase/serverless'
 import {
+  buildQuoteFabricConsumptionKey,
   buildCustomerSummaries,
   buildPreQuoteList,
+  collectRequestedQuoteFabricConsumptions,
   createAdminQuoteFromPreQuote,
   createFinalQuoteRecord,
   createPreQuoteRecord,
+  createStoredFinalQuoteCode,
   createWorkspaceId,
+  hydrateQuoteRecordWithFabricConsumptions,
+  normalizeMeters,
   syncCustomerFromFinalQuote,
   upsertCustomerFromPublic,
   type CustomerRecord,
   type CustomerSummary,
+  type FabricRecord,
+  type FabricStatus,
   type FinalQuoteDetails,
   type PreQuoteListItem,
   type PreQuoteStatus,
+  type QuoteFabricConsumptionRecord,
   type PublicPreQuoteContact,
   type PreQuoteItemRecord,
   type PreQuoteRecord,
   type QuoteWorkspaceStore,
+  type SeamstressFabricStockRecord,
+  type SeamstressRecord,
+  type SeamstressStatus,
+  type SeamstressStockBalanceView,
+  type StockMovementListItem,
+  type StockMovementRecord,
+  type StockMovementType,
   type StoredFinalQuote,
 } from '~~/app/lib/quoteWorkspace'
 import { normalizePhone, type AdminQuoteRecord } from '~~/app/lib/adminQuote'
@@ -65,8 +81,63 @@ interface FinalQuoteRow {
   code: string
   customer_id: string
   pre_quote_id: string | null
+  seamstress_id: string | null
   status: StoredFinalQuote['status']
   record_json: unknown
+  created_at: string | Date
+  updated_at: string | Date
+}
+
+interface SeamstressRow {
+  id: string
+  name: string
+  email: string
+  whatsapp: string
+  notes: string
+  status: SeamstressStatus
+  created_at: string | Date
+  updated_at: string | Date
+}
+
+interface FabricRow {
+  id: string
+  name: string
+  category: string
+  color_or_collection: string
+  unit: 'metro'
+  status: FabricStatus
+  created_at: string | Date
+  updated_at: string | Date
+}
+
+interface SeamstressFabricStockRow {
+  id: string
+  seamstress_id: string
+  fabric_id: string
+  balance_meters: number
+  created_at: string | Date
+  updated_at: string | Date
+}
+
+interface StockMovementRow {
+  id: string
+  seamstress_id: string
+  fabric_id: string
+  quote_id: string | null
+  quote_item_id: string | null
+  type: StockMovementType
+  quantity_meters: number
+  notes: string
+  created_at: string | Date
+}
+
+interface QuoteFabricConsumptionRow {
+  id: string
+  quote_id: string
+  quote_item_id: string
+  seamstress_id: string
+  fabric_id: string
+  quantity_meters: number
   created_at: string | Date
   updated_at: string | Date
 }
@@ -81,6 +152,24 @@ interface WorkspaceDocumentRow {
   updated_at: string | Date
 }
 
+interface StockBalanceRow extends SeamstressFabricStockRow {
+  seamstress_name: string
+  seamstress_status: SeamstressStatus
+  fabric_name: string
+  fabric_category: string
+  fabric_color_or_collection: string
+  fabric_unit: 'metro'
+  fabric_status: FabricStatus
+}
+
+interface StockMovementJoinedRow extends StockMovementRow {
+  seamstress_name: string
+  fabric_name: string
+  fabric_category: string
+  fabric_color_or_collection: string
+  quote_code: string | null
+}
+
 const resolveDatabaseUrl = () =>
   process.env.NETLIFY_DATABASE_URL
   || process.env.NEON_DATABASE_URL
@@ -88,6 +177,10 @@ const resolveDatabaseUrl = () =>
   || ''
 
 export const isNeonQuoteWorkspaceConfigured = () => Boolean(resolveDatabaseUrl())
+
+if (!neonConfig.webSocketConstructor && typeof WebSocket !== 'undefined') {
+  neonConfig.webSocketConstructor = WebSocket
+}
 
 const getSql = () => {
   const explicitUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL
@@ -104,6 +197,83 @@ const getSql = () => {
     statusCode: 503,
     statusMessage: 'Configure NETLIFY_DATABASE_URL, NEON_DATABASE_URL ou DATABASE_URL para persistência no Neon.',
   })
+}
+
+const createPool = () => {
+  const connectionString = resolveDatabaseUrl()
+
+  if (!connectionString) {
+    throw createError({
+      statusCode: 503,
+      statusMessage: 'Configure NETLIFY_DATABASE_URL, NEON_DATABASE_URL ou DATABASE_URL para persistência no Neon.',
+    })
+  }
+
+  return new Pool({ connectionString })
+}
+
+const withTransaction = async <T>(task: (client: PoolClient) => Promise<T>) => {
+  await ensureSchema()
+  const pool = createPool()
+  const client = await pool.connect()
+
+  try {
+    await client.query('BEGIN')
+    const result = await task(client)
+    await client.query('COMMIT')
+    return result
+  }
+  catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  }
+  finally {
+    client.release()
+    await pool.end()
+  }
+}
+
+const isUniqueConstraintError = (error: unknown, constraint: string) =>
+  typeof error === 'object'
+  && error !== null
+  && (
+    (
+      'code' in error
+      && (error as { code?: string }).code === '23505'
+      && 'constraint' in error
+      && (error as { constraint?: string }).constraint === constraint
+    )
+    || (
+      'message' in error
+      && typeof (error as { message?: string }).message === 'string'
+      && (error as { message: string }).message.includes(`unique constraint "${constraint}"`)
+    )
+  )
+
+const isLegacyGeneratedFinalQuoteCode = (code: string) => /^RD-\d{4}-\d{3}$/.test(code.trim())
+
+const normalizeFinalQuoteCode = (code: string) => {
+  const normalized = code.trim()
+
+  if (!normalized || isLegacyGeneratedFinalQuoteCode(normalized)) {
+    return createStoredFinalQuoteCode()
+  }
+
+  return normalized
+}
+
+const withClient = async <T>(task: (client: PoolClient) => Promise<T>) => {
+  await ensureSchema()
+  const pool = createPool()
+  const client = await pool.connect()
+
+  try {
+    return await task(client)
+  }
+  finally {
+    client.release()
+    await pool.end()
+  }
 }
 
 const toIso = (value: string | Date) => value instanceof Date ? value.toISOString() : value
@@ -151,10 +321,110 @@ const mapFinalQuoteRow = (row: FinalQuoteRow): StoredFinalQuote => ({
   code: row.code,
   customerId: row.customer_id,
   preQuoteId: row.pre_quote_id,
+  seamstressId: row.seamstress_id,
   status: row.status,
   record: parseJsonColumn<AdminQuoteRecord>(row.record_json),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
+})
+
+const mapSeamstressRow = (row: SeamstressRow): SeamstressRecord => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  whatsapp: row.whatsapp,
+  notes: row.notes,
+  status: row.status,
+  createdAt: toIso(row.created_at),
+  updatedAt: toIso(row.updated_at),
+})
+
+const mapFabricRow = (row: FabricRow): FabricRecord => ({
+  id: row.id,
+  name: row.name,
+  category: row.category,
+  colorOrCollection: row.color_or_collection,
+  unit: row.unit,
+  status: row.status,
+  createdAt: toIso(row.created_at),
+  updatedAt: toIso(row.updated_at),
+})
+
+const mapSeamstressFabricStockRow = (row: SeamstressFabricStockRow): SeamstressFabricStockRecord => ({
+  id: row.id,
+  seamstressId: row.seamstress_id,
+  fabricId: row.fabric_id,
+  balanceMeters: Number(row.balance_meters),
+  createdAt: toIso(row.created_at),
+  updatedAt: toIso(row.updated_at),
+})
+
+const mapStockMovementRow = (row: StockMovementRow): StockMovementRecord => ({
+  id: row.id,
+  seamstressId: row.seamstress_id,
+  fabricId: row.fabric_id,
+  quoteId: row.quote_id,
+  quoteItemId: row.quote_item_id,
+  type: row.type,
+  quantityMeters: Number(row.quantity_meters),
+  notes: row.notes,
+  createdAt: toIso(row.created_at),
+})
+
+const mapQuoteFabricConsumptionRow = (row: QuoteFabricConsumptionRow): QuoteFabricConsumptionRecord => ({
+  id: row.id,
+  quoteId: row.quote_id,
+  quoteItemId: row.quote_item_id,
+  seamstressId: row.seamstress_id,
+  fabricId: row.fabric_id,
+  quantityMeters: Number(row.quantity_meters),
+  createdAt: toIso(row.created_at),
+  updatedAt: toIso(row.updated_at),
+})
+
+const mapStockBalanceRow = (row: StockBalanceRow): SeamstressStockBalanceView => ({
+  id: row.id,
+  seamstressId: row.seamstress_id,
+  fabricId: row.fabric_id,
+  balanceMeters: Number(row.balance_meters),
+  createdAt: toIso(row.created_at),
+  updatedAt: toIso(row.updated_at),
+  seamstress: {
+    id: row.seamstress_id,
+    name: row.seamstress_name,
+    status: row.seamstress_status,
+  },
+  fabric: {
+    id: row.fabric_id,
+    name: row.fabric_name,
+    category: row.fabric_category,
+    colorOrCollection: row.fabric_color_or_collection,
+    unit: row.fabric_unit,
+    status: row.fabric_status,
+  },
+})
+
+const mapStockMovementJoinedRow = (row: StockMovementJoinedRow): StockMovementListItem => ({
+  id: row.id,
+  seamstressId: row.seamstress_id,
+  fabricId: row.fabric_id,
+  quoteId: row.quote_id,
+  quoteItemId: row.quote_item_id,
+  type: row.type,
+  quantityMeters: Number(row.quantity_meters),
+  notes: row.notes,
+  createdAt: toIso(row.created_at),
+  seamstress: {
+    id: row.seamstress_id,
+    name: row.seamstress_name,
+  },
+  fabric: {
+    id: row.fabric_id,
+    name: row.fabric_name,
+    category: row.fabric_category,
+    colorOrCollection: row.fabric_color_or_collection,
+  },
+  quoteCode: row.quote_code,
 })
 
 let schemaPromise: Promise<void> | null = null
@@ -218,10 +488,94 @@ const ensureSchema = async () => {
           code TEXT NOT NULL UNIQUE,
           customer_id TEXT NOT NULL REFERENCES quote_workspace_customers (id),
           pre_quote_id TEXT NULL REFERENCES quote_workspace_pre_quotes (id),
+          seamstress_id TEXT NULL,
           status TEXT NOT NULL,
           record_json JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL
+        )
+      `
+
+      await sql`ALTER TABLE quote_workspace_final_quotes ADD COLUMN IF NOT EXISTS seamstress_id TEXT NULL`
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_seamstresses (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL DEFAULT '',
+          whatsapp TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        )
+      `
+
+      await sql`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.table_constraints
+            WHERE constraint_name = 'quote_workspace_final_quotes_seamstress_id_fkey'
+          ) THEN
+            ALTER TABLE quote_workspace_final_quotes
+            ADD CONSTRAINT quote_workspace_final_quotes_seamstress_id_fkey
+            FOREIGN KEY (seamstress_id) REFERENCES quote_workspace_seamstresses (id);
+          END IF;
+        END $$;
+      `
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_fabrics (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          category TEXT NOT NULL,
+          color_or_collection TEXT NOT NULL DEFAULT '',
+          unit TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        )
+      `
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_seamstress_fabric_stock (
+          id TEXT PRIMARY KEY,
+          seamstress_id TEXT NOT NULL REFERENCES quote_workspace_seamstresses (id),
+          fabric_id TEXT NOT NULL REFERENCES quote_workspace_fabrics (id),
+          balance_meters NUMERIC(12, 3) NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL,
+          UNIQUE (seamstress_id, fabric_id)
+        )
+      `
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_stock_movements (
+          id TEXT PRIMARY KEY,
+          seamstress_id TEXT NOT NULL REFERENCES quote_workspace_seamstresses (id),
+          fabric_id TEXT NOT NULL REFERENCES quote_workspace_fabrics (id),
+          quote_id TEXT NULL REFERENCES quote_workspace_final_quotes (id),
+          quote_item_id TEXT NULL,
+          type TEXT NOT NULL,
+          quantity_meters NUMERIC(12, 3) NOT NULL,
+          notes TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL
+        )
+      `
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_quote_fabric_consumptions (
+          id TEXT PRIMARY KEY,
+          quote_id TEXT NOT NULL REFERENCES quote_workspace_final_quotes (id) ON DELETE CASCADE,
+          quote_item_id TEXT NOT NULL,
+          seamstress_id TEXT NOT NULL REFERENCES quote_workspace_seamstresses (id),
+          fabric_id TEXT NOT NULL REFERENCES quote_workspace_fabrics (id),
+          quantity_meters NUMERIC(12, 3) NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL,
+          UNIQUE (quote_id, quote_item_id, seamstress_id, fabric_id)
         )
       `
 
@@ -230,6 +584,18 @@ const ensureSchema = async () => {
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_pre_quotes_status_idx ON quote_workspace_pre_quotes (status, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_customer_idx ON quote_workspace_final_quotes (customer_id, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_pre_quote_idx ON quote_workspace_final_quotes (pre_quote_id)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_seamstress_idx ON quote_workspace_final_quotes (seamstress_id, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_seamstresses_status_idx ON quote_workspace_seamstresses (status, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_fabrics_status_idx ON quote_workspace_fabrics (status, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_stock_balance_seamstress_idx ON quote_workspace_seamstress_fabric_stock (seamstress_id, updated_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_stock_balance_fabric_idx ON quote_workspace_seamstress_fabric_stock (fabric_id, updated_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_stock_movements_seamstress_idx ON quote_workspace_stock_movements (seamstress_id, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_stock_movements_fabric_idx ON quote_workspace_stock_movements (fabric_id, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_stock_movements_quote_idx ON quote_workspace_stock_movements (quote_id, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_stock_movements_created_idx ON quote_workspace_stock_movements (created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_consumptions_quote_idx ON quote_workspace_quote_fabric_consumptions (quote_id, updated_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_consumptions_seamstress_idx ON quote_workspace_quote_fabric_consumptions (seamstress_id, updated_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_consumptions_fabric_idx ON quote_workspace_quote_fabric_consumptions (fabric_id, updated_at DESC)`
     })().catch((error) => {
       schemaPromise = null
       throw error
@@ -260,6 +626,395 @@ const readQuoteWorkspaceStore = async (): Promise<QuoteWorkspaceStore> => {
     customers: (customerRows as CustomerRow[]).map(mapCustomerRow),
     preQuotes: (preQuoteRows as PreQuoteRow[]).map(mapPreQuoteRow),
     finalQuotes: (finalQuoteRows as FinalQuoteRow[]).map(mapFinalQuoteRow),
+  }
+}
+
+const readQuoteFabricConsumptionsByQuoteId = async (quoteId: string) => {
+  await ensureSchema()
+  const sql = getSql()
+  const rows = await sql`
+    SELECT *
+    FROM quote_workspace_quote_fabric_consumptions
+    WHERE quote_id = ${quoteId}
+    ORDER BY created_at ASC
+  `
+
+  return (rows as QuoteFabricConsumptionRow[]).map(mapQuoteFabricConsumptionRow)
+}
+
+const findSeamstressById = async (id: string) => {
+  await ensureSchema()
+  const sql = getSql()
+  const [row] = await sql`
+    SELECT *
+    FROM quote_workspace_seamstresses
+    WHERE id = ${id}
+    LIMIT 1
+  `
+
+  return row ? mapSeamstressRow(row as SeamstressRow) : null
+}
+
+const getCustomerForQuoteWithClient = async (
+  client: PoolClient,
+  record: AdminQuoteRecord,
+  existingCustomerId?: string | null,
+) => {
+  const normalizedPhone = normalizePhone(record.customer.phone)
+  const byId = existingCustomerId
+    ? await client.query<CustomerRow>(
+        'SELECT * FROM quote_workspace_customers WHERE id = $1 FOR UPDATE',
+        [existingCustomerId],
+      )
+    : null
+  const byPhone = !byId?.rows[0] && normalizedPhone
+    ? await client.query<CustomerRow>(
+        'SELECT * FROM quote_workspace_customers WHERE whatsapp_normalized = $1 FOR UPDATE',
+        [normalizedPhone],
+      )
+    : null
+  const matchedRow = byId?.rows[0] || byPhone?.rows[0]
+  const now = new Date().toISOString()
+
+  if (matchedRow) {
+    const synced = syncCustomerFromFinalQuote(mapCustomerRow(matchedRow), record)
+    const result = await client.query<CustomerRow>(
+      `
+        UPDATE quote_workspace_customers
+        SET
+          name = $2,
+          whatsapp = $3,
+          whatsapp_normalized = $4,
+          email = $5,
+          location_label = $6,
+          address = $7,
+          complement = $8,
+          neighborhood = $9,
+          city = $10,
+          state = $11,
+          zipcode = $12,
+          updated_at = $13::timestamptz
+        WHERE id = $1
+        RETURNING *
+      `,
+      [
+        synced.id,
+        synced.name,
+        synced.whatsapp,
+        normalizePhone(synced.whatsapp),
+        synced.email,
+        synced.locationLabel,
+        synced.address,
+        synced.complement,
+        synced.neighborhood,
+        synced.city,
+        synced.state,
+        synced.zipcode,
+        synced.updatedAt,
+      ],
+    )
+
+    return mapCustomerRow(result.rows[0])
+  }
+
+  const created: CustomerRecord = {
+    id: createWorkspaceId('cus'),
+    name: record.customer.name.trim(),
+    whatsapp: record.customer.phone.trim(),
+    email: record.customer.email.trim(),
+    locationLabel: record.customer.city.trim() || record.customer.neighborhood.trim(),
+    address: record.customer.address.trim(),
+    complement: record.customer.complement.trim(),
+    neighborhood: record.customer.neighborhood.trim(),
+    city: record.customer.city.trim(),
+    state: record.customer.state.trim(),
+    zipcode: record.customer.zipcode.trim(),
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  const inserted = await client.query<CustomerRow>(
+    `
+      INSERT INTO quote_workspace_customers (
+        id,
+        name,
+        whatsapp,
+        whatsapp_normalized,
+        email,
+        location_label,
+        address,
+        complement,
+        neighborhood,
+        city,
+        state,
+        zipcode,
+        created_at,
+        updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz, $14::timestamptz
+      )
+      RETURNING *
+    `,
+    [
+      created.id,
+      created.name,
+      created.whatsapp,
+      normalizePhone(created.whatsapp),
+      created.email,
+      created.locationLabel,
+      created.address,
+      created.complement,
+      created.neighborhood,
+      created.city,
+      created.state,
+      created.zipcode,
+      created.createdAt,
+      created.updatedAt,
+    ],
+  )
+
+  return mapCustomerRow(inserted.rows[0])
+}
+
+const fetchFinalQuoteWithClient = async (client: PoolClient, id: string) => {
+  const result = await client.query<FinalQuoteRow>(
+    'SELECT * FROM quote_workspace_final_quotes WHERE id = $1 FOR UPDATE',
+    [id],
+  )
+  return result.rows[0] ? mapFinalQuoteRow(result.rows[0]) : null
+}
+
+const upsertFinalQuoteRecordWithClient = async (client: PoolClient, finalQuote: StoredFinalQuote) => {
+  const result = await client.query<FinalQuoteRow>(
+    `
+      INSERT INTO quote_workspace_final_quotes (
+        id,
+        code,
+        customer_id,
+        pre_quote_id,
+        seamstress_id,
+        status,
+        record_json,
+        created_at,
+        updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz
+      )
+      ON CONFLICT (id) DO UPDATE
+      SET
+        code = EXCLUDED.code,
+        customer_id = EXCLUDED.customer_id,
+        pre_quote_id = EXCLUDED.pre_quote_id,
+        seamstress_id = EXCLUDED.seamstress_id,
+        status = EXCLUDED.status,
+        record_json = EXCLUDED.record_json,
+        updated_at = EXCLUDED.updated_at
+      RETURNING *
+    `,
+    [
+      finalQuote.id,
+      finalQuote.code,
+      finalQuote.customerId,
+      finalQuote.preQuoteId,
+      finalQuote.seamstressId,
+      finalQuote.status,
+      JSON.stringify(finalQuote.record),
+      finalQuote.createdAt,
+      finalQuote.updatedAt,
+    ],
+  )
+
+  return mapFinalQuoteRow(result.rows[0])
+}
+
+const updateLinkedPreQuoteWithClient = async (
+  client: PoolClient,
+  preQuoteId: string | null,
+  finalQuoteId: string,
+  updatedAt: string,
+) => {
+  if (!preQuoteId) {
+    return
+  }
+
+  await client.query(
+    `
+      UPDATE quote_workspace_pre_quotes
+      SET
+        final_quote_id = $2,
+        status = 'convertido',
+        updated_at = $3::timestamptz
+      WHERE id = $1
+    `,
+    [preQuoteId, finalQuoteId, updatedAt],
+  )
+}
+
+const getExistingQuoteConsumptionsForUpdate = async (client: PoolClient, quoteId: string) => {
+  const result = await client.query<QuoteFabricConsumptionRow>(
+    `
+      SELECT *
+      FROM quote_workspace_quote_fabric_consumptions
+      WHERE quote_id = $1
+      FOR UPDATE
+    `,
+    [quoteId],
+  )
+
+  return result.rows.map(mapQuoteFabricConsumptionRow)
+}
+
+const getSeamstressForUpdate = async (client: PoolClient, seamstressId: string) => {
+  const result = await client.query<SeamstressRow>(
+    'SELECT * FROM quote_workspace_seamstresses WHERE id = $1 FOR UPDATE',
+    [seamstressId],
+  )
+  return result.rows[0] ? mapSeamstressRow(result.rows[0]) : null
+}
+
+const getFabricsForUpdate = async (client: PoolClient, fabricIds: string[]) => {
+  if (fabricIds.length === 0) {
+    return new Map<string, FabricRecord>()
+  }
+
+  const result = await client.query<FabricRow>(
+    'SELECT * FROM quote_workspace_fabrics WHERE id = ANY($1::text[]) FOR UPDATE',
+    [fabricIds],
+  )
+
+  return new Map(result.rows.map((row) => {
+    const fabric = mapFabricRow(row)
+    return [fabric.id, fabric] as const
+  }))
+}
+
+const lockStockBalanceRow = async (
+  client: PoolClient,
+  seamstressId: string,
+  fabricId: string,
+): Promise<SeamstressFabricStockRecord | null> => {
+  const result = await client.query<SeamstressFabricStockRow>(
+    `
+      SELECT *
+      FROM quote_workspace_seamstress_fabric_stock
+      WHERE seamstress_id = $1 AND fabric_id = $2
+      FOR UPDATE
+    `,
+    [seamstressId, fabricId],
+  )
+
+  return result.rows[0] ? mapSeamstressFabricStockRow(result.rows[0]) : null
+}
+
+const upsertStockBalanceWithClient = async (
+  client: PoolClient,
+  input: {
+    seamstressId: string
+    fabricId: string
+    balanceMeters: number
+  },
+) => {
+  const now = new Date().toISOString()
+  const result = await client.query<SeamstressFabricStockRow>(
+    `
+      INSERT INTO quote_workspace_seamstress_fabric_stock (
+        id,
+        seamstress_id,
+        fabric_id,
+        balance_meters,
+        created_at,
+        updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5::timestamptz, $6::timestamptz
+      )
+      ON CONFLICT (seamstress_id, fabric_id) DO UPDATE
+      SET
+        balance_meters = EXCLUDED.balance_meters,
+        updated_at = EXCLUDED.updated_at
+      RETURNING *
+    `,
+    [
+      createWorkspaceId('sfs'),
+      input.seamstressId,
+      input.fabricId,
+      input.balanceMeters,
+      now,
+      now,
+    ],
+  )
+
+  return mapSeamstressFabricStockRow(result.rows[0])
+}
+
+const insertStockMovementWithClient = async (
+  client: PoolClient,
+  movement: Omit<StockMovementRecord, 'id' | 'createdAt'>,
+) => {
+  const now = new Date().toISOString()
+  await client.query(
+    `
+      INSERT INTO quote_workspace_stock_movements (
+        id,
+        seamstress_id,
+        fabric_id,
+        quote_id,
+        quote_item_id,
+        type,
+        quantity_meters,
+        notes,
+        created_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz
+      )
+    `,
+    [
+      createWorkspaceId('mov'),
+      movement.seamstressId,
+      movement.fabricId,
+      movement.quoteId,
+      movement.quoteItemId,
+      movement.type,
+      movement.quantityMeters,
+      movement.notes,
+      now,
+    ],
+  )
+}
+
+const replaceQuoteConsumptionsWithClient = async (
+  client: PoolClient,
+  quoteId: string,
+  consumptions: QuoteFabricConsumptionRecord[],
+) => {
+  await client.query('DELETE FROM quote_workspace_quote_fabric_consumptions WHERE quote_id = $1', [quoteId])
+
+  for (const consumption of consumptions) {
+    await client.query(
+      `
+        INSERT INTO quote_workspace_quote_fabric_consumptions (
+          id,
+          quote_id,
+          quote_item_id,
+          seamstress_id,
+          fabric_id,
+          quantity_meters,
+          created_at,
+          updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz
+        )
+      `,
+      [
+        consumption.id,
+        consumption.quoteId,
+        consumption.quoteItemId,
+        consumption.seamstressId,
+        consumption.fabricId,
+        consumption.quantityMeters,
+        consumption.createdAt,
+        consumption.updatedAt,
+      ],
+    )
   }
 }
 
@@ -401,6 +1156,7 @@ const upsertFinalQuoteRecord = async (finalQuote: StoredFinalQuote): Promise<Sto
       code,
       customer_id,
       pre_quote_id,
+      seamstress_id,
       status,
       record_json,
       created_at,
@@ -410,6 +1166,7 @@ const upsertFinalQuoteRecord = async (finalQuote: StoredFinalQuote): Promise<Sto
       ${finalQuote.code},
       ${finalQuote.customerId},
       ${finalQuote.preQuoteId},
+      ${finalQuote.seamstressId},
       ${finalQuote.status},
       ${JSON.stringify(finalQuote.record)}::jsonb,
       ${finalQuote.createdAt}::timestamptz,
@@ -420,6 +1177,7 @@ const upsertFinalQuoteRecord = async (finalQuote: StoredFinalQuote): Promise<Sto
       code = EXCLUDED.code,
       customer_id = EXCLUDED.customer_id,
       pre_quote_id = EXCLUDED.pre_quote_id,
+      seamstress_id = EXCLUDED.seamstress_id,
       status = EXCLUDED.status,
       record_json = EXCLUDED.record_json,
       updated_at = EXCLUDED.updated_at
@@ -539,17 +1297,41 @@ export const findPreQuoteById = async (id: string) => {
 }
 
 export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails | null> => {
-  const store = await readQuoteWorkspaceStore()
-  const finalQuote = store.finalQuotes.find((entry) => entry.id === id)
+  await ensureSchema()
+  const sql = getSql()
+  const [finalQuoteRow] = await sql`
+    SELECT *
+    FROM quote_workspace_final_quotes
+    WHERE id = ${id}
+    LIMIT 1
+  `
 
-  if (!finalQuote) {
+  if (!finalQuoteRow) {
     return null
   }
 
+  const finalQuote = mapFinalQuoteRow(finalQuoteRow as FinalQuoteRow)
+  const [customerRows, preQuoteRows, seamstressRows, consumptionRows] = await sql.transaction([
+    sql`SELECT * FROM quote_workspace_customers WHERE id = ${finalQuote.customerId} LIMIT 1`,
+    finalQuote.preQuoteId
+      ? sql`SELECT * FROM quote_workspace_pre_quotes WHERE id = ${finalQuote.preQuoteId} LIMIT 1`
+      : sql`SELECT * FROM quote_workspace_pre_quotes WHERE FALSE`,
+    finalQuote.seamstressId
+      ? sql`SELECT * FROM quote_workspace_seamstresses WHERE id = ${finalQuote.seamstressId} LIMIT 1`
+      : sql`SELECT * FROM quote_workspace_seamstresses WHERE FALSE`,
+    sql`SELECT * FROM quote_workspace_quote_fabric_consumptions WHERE quote_id = ${finalQuote.id} ORDER BY created_at ASC`,
+  ], {
+    readOnly: true,
+  })
+  const fabricConsumptions = (consumptionRows as QuoteFabricConsumptionRow[]).map(mapQuoteFabricConsumptionRow)
+
   return {
     ...finalQuote,
-    customer: store.customers.find((entry) => entry.id === finalQuote.customerId) || null,
-    preQuote: finalQuote.preQuoteId ? store.preQuotes.find((entry) => entry.id === finalQuote.preQuoteId) || null : null,
+    record: hydrateQuoteRecordWithFabricConsumptions(finalQuote.record, fabricConsumptions),
+    customer: customerRows[0] ? mapCustomerRow(customerRows[0] as CustomerRow) : null,
+    preQuote: preQuoteRows[0] ? mapPreQuoteRow(preQuoteRows[0] as PreQuoteRow) : null,
+    seamstress: seamstressRows[0] ? mapSeamstressRow(seamstressRows[0] as SeamstressRow) : null,
+    fabricConsumptions,
   }
 }
 
@@ -595,84 +1377,262 @@ export const saveFinalQuoteRecord = async (input: {
   id?: string | null
   customerId?: string | null
   preQuoteId?: string | null
+  seamstressId?: string | null
+  status?: StoredFinalQuote['status']
   record: AdminQuoteRecord
-}): Promise<StoredFinalQuote> => serializeWrite(async () => {
-  const store = await readQuoteWorkspaceStore()
-  const normalizedPhone = input.record.customer.phone.trim()
-  const byId = input.customerId ? store.customers.find((entry) => entry.id === input.customerId) : null
-  const byPhone = normalizedPhone
-    ? store.customers.find((entry) => normalizePhone(entry.whatsapp) === normalizePhone(normalizedPhone))
-    : null
-  const matchedCustomer = byId || byPhone
-  const now = new Date().toISOString()
+}): Promise<StoredFinalQuote> => serializeWrite(async () =>
+  withTransaction(async (client) => {
+    input.record.project.code = normalizeFinalQuoteCode(input.record.project.code)
+    const hasAnyConsumptionInputs = input.record.items.some((item) => (item.fabricConsumptions || []).length > 0)
 
-  const customer = matchedCustomer
-    ? syncCustomerFromFinalQuote(matchedCustomer, input.record)
-    : {
-        id: createWorkspaceId('cus'),
-        name: input.record.customer.name.trim(),
-        whatsapp: input.record.customer.phone.trim(),
-        email: input.record.customer.email.trim(),
-        locationLabel: input.record.customer.city.trim() || input.record.customer.neighborhood.trim(),
-        address: input.record.customer.address.trim(),
-        complement: input.record.customer.complement.trim(),
-        neighborhood: input.record.customer.neighborhood.trim(),
-        city: input.record.customer.city.trim(),
-        state: input.record.customer.state.trim(),
-        zipcode: input.record.customer.zipcode.trim(),
-        createdAt: now,
+    for (const item of input.record.items) {
+      for (const consumption of item.fabricConsumptions || []) {
+        const quantityMeters = normalizeMeters(consumption.quantityMeters)
+
+        if (consumption.fabricId && (!quantityMeters || quantityMeters <= 0)) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: 'Toda baixa de tecido precisa ter metragem maior que zero.',
+          })
+        }
+
+        if (!consumption.fabricId && quantityMeters && quantityMeters > 0) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: 'Selecione o tecido correspondente para cada consumo informado.',
+          })
+        }
+      }
+    }
+
+    if (hasAnyConsumptionInputs && !input.seamstressId) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Selecione a costureira antes de salvar consumos de tecido.',
+      })
+    }
+
+    const now = new Date().toISOString()
+    const persistedCustomer = await getCustomerForQuoteWithClient(client, input.record, input.customerId)
+    const existing = input.id ? await fetchFinalQuoteWithClient(client, input.id) : null
+    const selectedSeamstress = input.seamstressId ? await getSeamstressForUpdate(client, input.seamstressId) : null
+
+    if (input.seamstressId && !selectedSeamstress) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Costureira selecionada não encontrada.',
+      })
+    }
+
+    const persistedStatus = input.status ?? existing?.status ?? 'rascunho'
+    const desiredConsumptions = persistedStatus === 'cancelado'
+      ? []
+      : collectRequestedQuoteFabricConsumptions(input.record, input.seamstressId)
+    const existingConsumptions = existing ? await getExistingQuoteConsumptionsForUpdate(client, existing.id) : []
+    const desiredFabricIds = [...new Set(desiredConsumptions.map((entry) => entry.fabricId))]
+    const existingFabricIds = [...new Set(existingConsumptions.map((entry) => entry.fabricId))]
+    const fabrics = await getFabricsForUpdate(client, [...new Set([...desiredFabricIds, ...existingFabricIds])])
+
+    for (const consumption of desiredConsumptions) {
+      if (!fabrics.has(consumption.fabricId)) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: 'Um dos tecidos selecionados não foi encontrado.',
+        })
+      }
+    }
+
+    const previousByKey = new Map(
+      existingConsumptions.map((entry) => [buildQuoteFabricConsumptionKey(entry), entry] as const),
+    )
+    const nextByKey = new Map(
+      desiredConsumptions.map((entry) => [buildQuoteFabricConsumptionKey(entry), entry] as const),
+    )
+    const stockDeltas = new Map<string, { seamstressId: string; fabricId: string; delta: number }>()
+    const movementInputs: Omit<StockMovementRecord, 'id' | 'createdAt'>[] = []
+
+    const applyStockDelta = (seamstressId: string, fabricId: string, delta: number) => {
+      const key = `${seamstressId}::${fabricId}`
+      const current = stockDeltas.get(key)
+
+      if (current) {
+        current.delta = Math.round((current.delta + delta) * 1000) / 1000
+        return
+      }
+
+      stockDeltas.set(key, {
+        seamstressId,
+        fabricId,
+        delta: Math.round(delta * 1000) / 1000,
+      })
+    }
+
+    const buildMovementNote = (quoteItemId: string, fabricId: string) => {
+      const item = input.record.items.find((entry) => entry.id === quoteItemId)
+      const fabric = fabrics.get(fabricId)
+      return [
+        input.record.project.code,
+        item?.room || item?.openingLabel || quoteItemId,
+        fabric?.name || fabricId,
+      ].filter(Boolean).join(' | ')
+    }
+
+    for (const [key, previous] of previousByKey.entries()) {
+      const next = nextByKey.get(key)
+
+      if (!next) {
+        applyStockDelta(previous.seamstressId, previous.fabricId, previous.quantityMeters)
+        movementInputs.push({
+          seamstressId: previous.seamstressId,
+          fabricId: previous.fabricId,
+          quoteId: existing?.id || null,
+          quoteItemId: previous.quoteItemId,
+          type: 'estorno_orcamento',
+          quantityMeters: previous.quantityMeters,
+          notes: `Estorno: ${buildMovementNote(previous.quoteItemId, previous.fabricId)}`,
+        })
+        continue
+      }
+
+      const delta = Math.round((next.quantityMeters - previous.quantityMeters) * 1000) / 1000
+
+      if (delta > 0) {
+        applyStockDelta(next.seamstressId, next.fabricId, -delta)
+        movementInputs.push({
+          seamstressId: next.seamstressId,
+          fabricId: next.fabricId,
+          quoteId: existing?.id || null,
+          quoteItemId: next.quoteItemId,
+          type: 'consumo_orcamento',
+          quantityMeters: delta,
+          notes: `Consumo adicional: ${buildMovementNote(next.quoteItemId, next.fabricId)}`,
+        })
+      }
+      else if (delta < 0) {
+        applyStockDelta(previous.seamstressId, previous.fabricId, Math.abs(delta))
+        movementInputs.push({
+          seamstressId: previous.seamstressId,
+          fabricId: previous.fabricId,
+          quoteId: existing?.id || null,
+          quoteItemId: previous.quoteItemId,
+          type: 'estorno_orcamento',
+          quantityMeters: Math.abs(delta),
+          notes: `Estorno parcial: ${buildMovementNote(previous.quoteItemId, previous.fabricId)}`,
+        })
+      }
+
+      nextByKey.delete(key)
+    }
+
+    for (const next of nextByKey.values()) {
+      applyStockDelta(next.seamstressId, next.fabricId, -next.quantityMeters)
+      movementInputs.push({
+        seamstressId: next.seamstressId,
+        fabricId: next.fabricId,
+        quoteId: existing?.id || null,
+        quoteItemId: next.quoteItemId,
+        type: 'consumo_orcamento',
+        quantityMeters: next.quantityMeters,
+        notes: `Consumo inicial: ${buildMovementNote(next.quoteItemId, next.fabricId)}`,
+      })
+    }
+
+    for (const adjustment of stockDeltas.values()) {
+      if (adjustment.delta === 0) {
+        continue
+      }
+
+      const lockedStock = await lockStockBalanceRow(client, adjustment.seamstressId, adjustment.fabricId)
+      const currentBalance = lockedStock?.balanceMeters || 0
+      const nextBalance = Math.round((currentBalance + adjustment.delta) * 1000) / 1000
+
+      if (nextBalance < 0) {
+        const seamstress = adjustment.seamstressId === selectedSeamstress?.id
+          ? selectedSeamstress
+          : await getSeamstressForUpdate(client, adjustment.seamstressId)
+        const fabric = fabrics.get(adjustment.fabricId)
+
+        throw createError({
+          statusCode: 409,
+          statusMessage: `Saldo insuficiente para ${fabric?.name || 'tecido'} com ${seamstress?.name || 'a costureira selecionada'}.`,
+        })
+      }
+
+      await upsertStockBalanceWithClient(client, {
+        seamstressId: adjustment.seamstressId,
+        fabricId: adjustment.fabricId,
+        balanceMeters: nextBalance,
+      })
+    }
+
+    let persistedQuote: StoredFinalQuote
+
+    try {
+      persistedQuote = existing
+        ? await upsertFinalQuoteRecordWithClient(client, {
+            ...existing,
+            customerId: persistedCustomer.id,
+            preQuoteId: input.preQuoteId ?? existing.preQuoteId,
+            seamstressId: input.seamstressId ?? existing.seamstressId ?? null,
+            code: input.record.project.code,
+            status: persistedStatus,
+            record: input.record,
+            updatedAt: now,
+          })
+        : await upsertFinalQuoteRecordWithClient(
+            client,
+            {
+              ...createFinalQuoteRecord({
+                customerId: persistedCustomer.id,
+                preQuoteId: input.preQuoteId ?? null,
+                seamstressId: input.seamstressId ?? null,
+                record: input.record,
+              }),
+              status: persistedStatus,
+              updatedAt: now,
+            },
+          )
+    }
+    catch (error) {
+      if (isUniqueConstraintError(error, 'quote_workspace_final_quotes_code_key')) {
+        throw createError({
+          statusCode: 409,
+          statusMessage: 'Ja existe um orcamento com este codigo. Ajuste o codigo do projeto e tente novamente.',
+        })
+      }
+
+      throw error
+    }
+
+    const persistedConsumptions: QuoteFabricConsumptionRecord[] = desiredConsumptions.map((entry) => {
+      const previous = previousByKey.get(buildQuoteFabricConsumptionKey(entry))
+
+      return {
+        id: previous?.id || createWorkspaceId('qfc'),
+        quoteId: persistedQuote.id,
+        quoteItemId: entry.quoteItemId,
+        seamstressId: entry.seamstressId,
+        fabricId: entry.fabricId,
+        quantityMeters: entry.quantityMeters,
+        createdAt: previous?.createdAt || now,
         updatedAt: now,
       }
+    })
 
-  const persistedCustomer = matchedCustomer
-    ? await updateCustomerRecord(customer)
-    : await insertCustomerRecord(customer)
-  const existing = input.id ? store.finalQuotes.find((entry) => entry.id === input.id) : null
+    await replaceQuoteConsumptionsWithClient(client, persistedQuote.id, persistedConsumptions)
 
-  if (existing) {
-    existing.customerId = persistedCustomer.id
-    existing.preQuoteId = input.preQuoteId ?? existing.preQuoteId
-    existing.code = input.record.project.code
-    existing.record = input.record
-    existing.updatedAt = now
-    existing.status = 'rascunho'
-
-    const persistedFinalQuote = await upsertFinalQuoteRecord(existing)
-
-    if (persistedFinalQuote.preQuoteId) {
-      const linkedPreQuote = store.preQuotes.find((entry) => entry.id === persistedFinalQuote.preQuoteId)
-      if (linkedPreQuote) {
-        linkedPreQuote.finalQuoteId = persistedFinalQuote.id
-        linkedPreQuote.status = 'convertido'
-        linkedPreQuote.updatedAt = now
-        await upsertPreQuoteRecord(linkedPreQuote)
-      }
+    for (const movement of movementInputs) {
+      await insertStockMovementWithClient(client, {
+        ...movement,
+        quoteId: persistedQuote.id,
+      })
     }
 
-    return persistedFinalQuote
-  }
+    await updateLinkedPreQuoteWithClient(client, persistedQuote.preQuoteId, persistedQuote.id, now)
 
-  const created = createFinalQuoteRecord({
-    customerId: persistedCustomer.id,
-    preQuoteId: input.preQuoteId ?? null,
-    record: input.record,
-  })
-
-  created.updatedAt = now
-  const persistedFinalQuote = await upsertFinalQuoteRecord(created)
-
-  if (persistedFinalQuote.preQuoteId) {
-    const linkedPreQuote = store.preQuotes.find((entry) => entry.id === persistedFinalQuote.preQuoteId)
-    if (linkedPreQuote) {
-      linkedPreQuote.finalQuoteId = persistedFinalQuote.id
-      linkedPreQuote.status = 'convertido'
-      linkedPreQuote.updatedAt = now
-      await upsertPreQuoteRecord(linkedPreQuote)
-    }
-  }
-
-  return persistedFinalQuote
-})
+    return persistedQuote
+  }),
+)
 
 export const updatePreQuoteStatus = async (id: string, status: PreQuoteStatus) =>
   serializeWrite(async () => {
@@ -686,4 +1646,390 @@ export const updatePreQuoteStatus = async (id: string, status: PreQuoteStatus) =
     preQuote.status = status
     preQuote.updatedAt = new Date().toISOString()
     return upsertPreQuoteRecord(preQuote)
+  })
+
+export const listSeamstresses = async (status?: SeamstressStatus | 'all'): Promise<SeamstressRecord[]> => {
+  await ensureSchema()
+  const sql = getSql()
+  const rows = status && status !== 'all'
+    ? await sql`
+        SELECT *
+        FROM quote_workspace_seamstresses
+        WHERE status = ${status}
+        ORDER BY name ASC
+      `
+    : await sql`
+        SELECT *
+        FROM quote_workspace_seamstresses
+        ORDER BY name ASC
+      `
+
+  return (rows as SeamstressRow[]).map(mapSeamstressRow)
+}
+
+export const saveSeamstressRecord = async (input: {
+  id?: string | null
+  name: string
+  email?: string
+  whatsapp?: string
+  notes?: string
+  status: SeamstressStatus
+}): Promise<SeamstressRecord> => {
+  await ensureSchema()
+  const sql = getSql()
+  const now = new Date().toISOString()
+  const [row] = await sql`
+    INSERT INTO quote_workspace_seamstresses (
+      id,
+      name,
+      email,
+      whatsapp,
+      notes,
+      status,
+      created_at,
+      updated_at
+    ) VALUES (
+      ${input.id || createWorkspaceId('sem')},
+      ${input.name.trim()},
+      ${input.email?.trim() || ''},
+      ${input.whatsapp?.trim() || ''},
+      ${input.notes?.trim() || ''},
+      ${input.status},
+      ${now}::timestamptz,
+      ${now}::timestamptz
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET
+      name = EXCLUDED.name,
+      email = EXCLUDED.email,
+      whatsapp = EXCLUDED.whatsapp,
+      notes = EXCLUDED.notes,
+      status = EXCLUDED.status,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *
+  `
+
+  return mapSeamstressRow(row as SeamstressRow)
+}
+
+export const listFabrics = async (status?: FabricStatus | 'all'): Promise<FabricRecord[]> => {
+  await ensureSchema()
+  const sql = getSql()
+  const rows = status && status !== 'all'
+    ? await sql`
+        SELECT *
+        FROM quote_workspace_fabrics
+        WHERE status = ${status}
+        ORDER BY name ASC, color_or_collection ASC
+      `
+    : await sql`
+        SELECT *
+        FROM quote_workspace_fabrics
+        ORDER BY name ASC, color_or_collection ASC
+      `
+
+  return (rows as FabricRow[]).map(mapFabricRow)
+}
+
+export const saveFabricRecord = async (input: {
+  id?: string | null
+  name: string
+  category: string
+  colorOrCollection?: string
+  status: FabricStatus
+}): Promise<FabricRecord> => {
+  await ensureSchema()
+  const sql = getSql()
+  const now = new Date().toISOString()
+  const [row] = await sql`
+    INSERT INTO quote_workspace_fabrics (
+      id,
+      name,
+      category,
+      color_or_collection,
+      unit,
+      status,
+      created_at,
+      updated_at
+    ) VALUES (
+      ${input.id || createWorkspaceId('fab')},
+      ${input.name.trim()},
+      ${input.category.trim()},
+      ${input.colorOrCollection?.trim() || ''},
+      ${'metro'},
+      ${input.status},
+      ${now}::timestamptz,
+      ${now}::timestamptz
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET
+      name = EXCLUDED.name,
+      category = EXCLUDED.category,
+      color_or_collection = EXCLUDED.color_or_collection,
+      status = EXCLUDED.status,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *
+  `
+
+  return mapFabricRow(row as FabricRow)
+}
+
+export const listSeamstressStockBalances = async (filters?: {
+  seamstressId?: string
+  fabricId?: string
+  search?: string
+}): Promise<SeamstressStockBalanceView[]> =>
+  withClient(async (client) => {
+    const conditions: string[] = []
+    const values: unknown[] = []
+
+    if (filters?.seamstressId) {
+      values.push(filters.seamstressId)
+      conditions.push(`stock.seamstress_id = $${values.length}`)
+    }
+
+    if (filters?.fabricId) {
+      values.push(filters.fabricId)
+      conditions.push(`stock.fabric_id = $${values.length}`)
+    }
+
+    if (filters?.search?.trim()) {
+      values.push(`%${filters.search.trim().toLowerCase()}%`)
+      conditions.push(`(
+        LOWER(seamstress.name) LIKE $${values.length}
+        OR LOWER(fabric.name) LIKE $${values.length}
+        OR LOWER(fabric.category) LIKE $${values.length}
+        OR LOWER(fabric.color_or_collection) LIKE $${values.length}
+      )`)
+    }
+
+    const result = await client.query<StockBalanceRow>(
+      `
+        SELECT
+          stock.*,
+          seamstress.name AS seamstress_name,
+          seamstress.status AS seamstress_status,
+          fabric.name AS fabric_name,
+          fabric.category AS fabric_category,
+          fabric.color_or_collection AS fabric_color_or_collection,
+          fabric.unit AS fabric_unit,
+          fabric.status AS fabric_status
+        FROM quote_workspace_seamstress_fabric_stock stock
+        JOIN quote_workspace_seamstresses seamstress ON seamstress.id = stock.seamstress_id
+        JOIN quote_workspace_fabrics fabric ON fabric.id = stock.fabric_id
+        ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+        ORDER BY seamstress.name ASC, fabric.name ASC, fabric.color_or_collection ASC
+      `,
+      values,
+    )
+
+    return result.rows.map(mapStockBalanceRow)
+  })
+
+export const applyManualStockMovement = async (input: {
+  seamstressId: string
+  fabricId: string
+  quantityMeters: number
+  mode: 'entrada_manual' | 'ajuste_manual'
+  notes?: string
+  allowNegative?: boolean
+}): Promise<SeamstressFabricStockRecord> =>
+  serializeWrite(async () =>
+    withTransaction(async (client) => {
+      const quantityMeters = normalizeMeters(input.quantityMeters)
+
+      if (!quantityMeters || quantityMeters === 0) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Informe uma metragem diferente de zero para movimentar o estoque.',
+        })
+      }
+
+      const seamstress = await getSeamstressForUpdate(client, input.seamstressId)
+      const fabrics = await getFabricsForUpdate(client, [input.fabricId])
+      const fabric = fabrics.get(input.fabricId)
+
+      if (!seamstress || !fabric) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: 'Costureira ou tecido não encontrado para a movimentação manual.',
+        })
+      }
+
+      const stock = await lockStockBalanceRow(client, input.seamstressId, input.fabricId)
+      const currentBalance = stock?.balanceMeters || 0
+      const signedDelta = input.mode === 'entrada_manual' ? Math.abs(quantityMeters) : quantityMeters
+      const nextBalance = Math.round((currentBalance + signedDelta) * 1000) / 1000
+
+      if (nextBalance < 0 && !input.allowNegative) {
+        throw createError({
+          statusCode: 409,
+          statusMessage: `O ajuste deixaria saldo negativo para ${fabric.name} com ${seamstress.name}.`,
+        })
+      }
+
+      const updatedStock = await upsertStockBalanceWithClient(client, {
+        seamstressId: input.seamstressId,
+        fabricId: input.fabricId,
+        balanceMeters: nextBalance,
+      })
+
+      await insertStockMovementWithClient(client, {
+        seamstressId: input.seamstressId,
+        fabricId: input.fabricId,
+        quoteId: null,
+        quoteItemId: null,
+        type: input.mode === 'entrada_manual'
+          ? 'entrada_manual'
+          : signedDelta >= 0
+            ? 'ajuste_manual_entrada'
+            : 'ajuste_manual_saida',
+        quantityMeters: Math.abs(signedDelta),
+        notes: input.notes?.trim() || '',
+      })
+
+      return updatedStock
+    }),
+  )
+
+export const transferStockBetweenSeamstresses = async (input: {
+  fromSeamstressId: string
+  toSeamstressId: string
+  fabricId: string
+  quantityMeters: number
+  notes?: string
+}): Promise<{ from: SeamstressFabricStockRecord; to: SeamstressFabricStockRecord }> =>
+  serializeWrite(async () =>
+    withTransaction(async (client) => {
+      const quantityMeters = normalizeMeters(input.quantityMeters)
+
+      if (!quantityMeters || quantityMeters <= 0) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'A transferência precisa ter metragem positiva.',
+        })
+      }
+
+      if (input.fromSeamstressId === input.toSeamstressId) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Escolha costureiras diferentes para a transferência.',
+        })
+      }
+
+      const fromSeamstress = await getSeamstressForUpdate(client, input.fromSeamstressId)
+      const toSeamstress = await getSeamstressForUpdate(client, input.toSeamstressId)
+      const fabrics = await getFabricsForUpdate(client, [input.fabricId])
+      const fabric = fabrics.get(input.fabricId)
+
+      if (!fromSeamstress || !toSeamstress || !fabric) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: 'Não foi possível localizar todos os registros da transferência.',
+        })
+      }
+
+      const fromStock = await lockStockBalanceRow(client, input.fromSeamstressId, input.fabricId)
+      const toStock = await lockStockBalanceRow(client, input.toSeamstressId, input.fabricId)
+      const nextFromBalance = Math.round(((fromStock?.balanceMeters || 0) - quantityMeters) * 1000) / 1000
+
+      if (nextFromBalance < 0) {
+        throw createError({
+          statusCode: 409,
+          statusMessage: `Saldo insuficiente para transferir ${fabric.name} de ${fromSeamstress.name}.`,
+        })
+      }
+
+      const updatedFrom = await upsertStockBalanceWithClient(client, {
+        seamstressId: input.fromSeamstressId,
+        fabricId: input.fabricId,
+        balanceMeters: nextFromBalance,
+      })
+      const updatedTo = await upsertStockBalanceWithClient(client, {
+        seamstressId: input.toSeamstressId,
+        fabricId: input.fabricId,
+        balanceMeters: Math.round(((toStock?.balanceMeters || 0) + quantityMeters) * 1000) / 1000,
+      })
+      const notes = input.notes?.trim() || `${fromSeamstress.name} -> ${toSeamstress.name}`
+
+      await insertStockMovementWithClient(client, {
+        seamstressId: input.fromSeamstressId,
+        fabricId: input.fabricId,
+        quoteId: null,
+        quoteItemId: null,
+        type: 'transferencia_saida',
+        quantityMeters,
+        notes,
+      })
+      await insertStockMovementWithClient(client, {
+        seamstressId: input.toSeamstressId,
+        fabricId: input.fabricId,
+        quoteId: null,
+        quoteItemId: null,
+        type: 'transferencia_entrada',
+        quantityMeters,
+        notes,
+      })
+
+      return { from: updatedFrom, to: updatedTo }
+    }),
+  )
+
+export const listStockMovements = async (filters?: {
+  seamstressId?: string
+  fabricId?: string
+  quoteId?: string
+  dateFrom?: string
+  dateTo?: string
+}): Promise<StockMovementListItem[]> =>
+  withClient(async (client) => {
+    const conditions: string[] = []
+    const values: unknown[] = []
+
+    if (filters?.seamstressId) {
+      values.push(filters.seamstressId)
+      conditions.push(`movement.seamstress_id = $${values.length}`)
+    }
+
+    if (filters?.fabricId) {
+      values.push(filters.fabricId)
+      conditions.push(`movement.fabric_id = $${values.length}`)
+    }
+
+    if (filters?.quoteId) {
+      values.push(filters.quoteId)
+      conditions.push(`movement.quote_id = $${values.length}`)
+    }
+
+    if (filters?.dateFrom) {
+      values.push(filters.dateFrom)
+      conditions.push(`movement.created_at >= $${values.length}::date`)
+    }
+
+    if (filters?.dateTo) {
+      values.push(filters.dateTo)
+      conditions.push(`movement.created_at < ($${values.length}::date + INTERVAL '1 day')`)
+    }
+
+    const result = await client.query<StockMovementJoinedRow>(
+      `
+        SELECT
+          movement.*,
+          seamstress.name AS seamstress_name,
+          fabric.name AS fabric_name,
+          fabric.category AS fabric_category,
+          fabric.color_or_collection AS fabric_color_or_collection,
+          quote.code AS quote_code
+        FROM quote_workspace_stock_movements movement
+        JOIN quote_workspace_seamstresses seamstress ON seamstress.id = movement.seamstress_id
+        JOIN quote_workspace_fabrics fabric ON fabric.id = movement.fabric_id
+        LEFT JOIN quote_workspace_final_quotes quote ON quote.id = movement.quote_id
+        ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+        ORDER BY movement.created_at DESC
+        LIMIT 500
+      `,
+      values,
+    )
+
+    return result.rows.map(mapStockMovementJoinedRow)
   })

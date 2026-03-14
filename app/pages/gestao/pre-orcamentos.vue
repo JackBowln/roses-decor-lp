@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
+import { getApiErrorMessage } from '@/lib/apiError'
 import { getPreQuoteStatusLabel, type PreQuoteListItem } from '@/lib/quoteWorkspace'
 
 definePageMeta({
@@ -47,6 +48,9 @@ const loadPreQuotes = async () => {
 
     preQuotes.value = response.preQuotes
   }
+  catch (error) {
+    toast.error(getApiErrorMessage(error, 'Não foi possível carregar os pré-orçamentos.'))
+  }
   finally {
     isLoading.value = false
   }
@@ -68,14 +72,7 @@ const convertToFinalQuote = async (id: string) => {
     await navigateTo(`/gestao/orcamentos?quoteId=${response.finalQuote.id}`)
   }
   catch (error) {
-    const message = typeof error === 'object'
-      && error !== null
-      && 'data' in error
-      && typeof (error as { data?: { statusMessage?: string } }).data?.statusMessage === 'string'
-      ? (error as { data: { statusMessage: string } }).data.statusMessage
-      : 'Não foi possível converter o pré-orçamento.'
-
-    toast.error(message)
+    toast.error(getApiErrorMessage(error, 'Não foi possível converter o pré-orçamento.'))
   }
   finally {
     isConverting.value = null

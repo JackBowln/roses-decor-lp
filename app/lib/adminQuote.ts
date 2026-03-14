@@ -12,6 +12,12 @@ export type BlackoutOption = 'SEM' | '0.7' | '1'
 export type FabricOption = 'LINHO' | 'LINHO RUSTICO' | 'VOIL' | 'NÃO'
 export type PleatOption = 'WAVE' | 'PA' | 'NÃO'
 
+export interface QuoteItemFabricConsumption {
+  id: string
+  fabricId: string
+  quantityMeters: number | null
+}
+
 export interface QuoteWorkbookTab {
   id: QuoteTabId
   label: string
@@ -78,6 +84,7 @@ export interface QuoteLineItem {
   sewingPrice: PriceField
   installationPrice: PriceField
   notes: string
+  fabricConsumptions: QuoteItemFabricConsumption[]
 }
 
 export interface AdminQuoteRecord {
@@ -175,6 +182,20 @@ const plusDaysIso = (days: number) => {
   return date.toISOString().slice(0, 10)
 }
 
+const createDraftQuoteCode = () => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const stamp = [
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+  ].join('')
+  const suffix = Math.random().toString(36).slice(2, 7).toUpperCase()
+
+  return `ORC-${year}-${stamp}-${suffix}`
+}
+
 export const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -192,6 +213,12 @@ export const formatArea = (width: number | null, height: number | null) => {
 export const normalizePhone = (value: string) => value.replace(/\D+/g, '')
 
 export const createQuoteId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
+export const createEmptyItemFabricConsumption = (): QuoteItemFabricConsumption => ({
+  id: createQuoteId(),
+  fabricId: '',
+  quantityMeters: null,
+})
 
 export const formatBlackoutLabel = (value: BlackoutOption) => {
   if (value === '0.7') {
@@ -240,6 +267,7 @@ export const createEmptyLineItem = (): QuoteLineItem => ({
   sewingPrice: null,
   installationPrice: null,
   notes: '',
+  fabricConsumptions: [],
 })
 
 export const createEmptyQuoteRecord = (): AdminQuoteRecord => ({
@@ -255,7 +283,7 @@ export const createEmptyQuoteRecord = (): AdminQuoteRecord => ({
     zipcode: '',
   },
   project: {
-    code: `RD-${new Date().getFullYear()}-${Math.floor(Math.random() * 900 + 100)}`,
+    code: createDraftQuoteCode(),
     createdAt: todayIso(),
     validUntil: plusDaysIso(15),
     salesRep: 'Roses Decor',

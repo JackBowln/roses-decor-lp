@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { toast } from 'vue-sonner'
+import { getApiErrorMessage } from '@/lib/apiError'
 import type { CustomerSummary } from '@/lib/quoteWorkspace'
 
 definePageMeta({
@@ -32,6 +34,9 @@ const loadCustomers = async () => {
       credentials: 'include',
     })
     customers.value = response.customers
+  }
+  catch (error) {
+    toast.error(getApiErrorMessage(error, 'Não foi possível carregar os clientes.'))
   }
   finally {
     isLoading.value = false

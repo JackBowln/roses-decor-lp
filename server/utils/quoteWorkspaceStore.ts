@@ -1,7 +1,16 @@
+import { createError } from 'h3'
 import * as fileStore from '../data/quoteWorkspaceStore.file'
 import * as neonStore from '../data/quoteWorkspaceStore.neon'
 
 const shouldUseNeonStore = () => neonStore.isNeonQuoteWorkspaceConfigured()
+const assertInventoryDatabaseConfigured = () => {
+  if (!shouldUseNeonStore()) {
+    throw createError({
+      statusCode: 503,
+      statusMessage: 'O módulo de estoque exige NETLIFY_DATABASE_URL, NEON_DATABASE_URL ou DATABASE_URL configurado.',
+    })
+  }
+}
 
 export const saveWorkspaceDocument = (...args: Parameters<typeof fileStore.saveWorkspaceDocument>) =>
   shouldUseNeonStore()
@@ -49,11 +58,65 @@ export const convertPreQuoteToFinalQuote = (...args: Parameters<typeof fileStore
     : fileStore.convertPreQuoteToFinalQuote(...args)
 
 export const saveFinalQuoteRecord = (...args: Parameters<typeof fileStore.saveFinalQuoteRecord>) =>
-  shouldUseNeonStore()
-    ? neonStore.saveFinalQuoteRecord(...args)
-    : fileStore.saveFinalQuoteRecord(...args)
+  (() => {
+    const [input] = args
+    const usesInventoryModule = Boolean(
+      input.seamstressId !== undefined
+      || input.status !== undefined
+      || input.record.items.some((item) => Array.isArray(item.fabricConsumptions)),
+    )
+
+    if (usesInventoryModule) {
+      assertInventoryDatabaseConfigured()
+      return neonStore.saveFinalQuoteRecord(...args)
+    }
+
+    return shouldUseNeonStore()
+      ? neonStore.saveFinalQuoteRecord(...args)
+      : fileStore.saveFinalQuoteRecord(...args)
+  })()
 
 export const updatePreQuoteStatus = (...args: Parameters<typeof fileStore.updatePreQuoteStatus>) =>
   shouldUseNeonStore()
     ? neonStore.updatePreQuoteStatus(...args)
     : fileStore.updatePreQuoteStatus(...args)
+
+export const listSeamstresses = (...args: Parameters<typeof neonStore.listSeamstresses>) => {
+  assertInventoryDatabaseConfigured()
+  return neonStore.listSeamstresses(...args)
+}
+
+export const saveSeamstressRecord = (...args: Parameters<typeof neonStore.saveSeamstressRecord>) => {
+  assertInventoryDatabaseConfigured()
+  return neonStore.saveSeamstressRecord(...args)
+}
+
+export const listFabrics = (...args: Parameters<typeof neonStore.listFabrics>) => {
+  assertInventoryDatabaseConfigured()
+  return neonStore.listFabrics(...args)
+}
+
+export const saveFabricRecord = (...args: Parameters<typeof neonStore.saveFabricRecord>) => {
+  assertInventoryDatabaseConfigured()
+  return neonStore.saveFabricRecord(...args)
+}
+
+export const listSeamstressStockBalances = (...args: Parameters<typeof neonStore.listSeamstressStockBalances>) => {
+  assertInventoryDatabaseConfigured()
+  return neonStore.listSeamstressStockBalances(...args)
+}
+
+export const applyManualStockMovement = (...args: Parameters<typeof neonStore.applyManualStockMovement>) => {
+  assertInventoryDatabaseConfigured()
+  return neonStore.applyManualStockMovement(...args)
+}
+
+export const transferStockBetweenSeamstresses = (...args: Parameters<typeof neonStore.transferStockBetweenSeamstresses>) => {
+  assertInventoryDatabaseConfigured()
+  return neonStore.transferStockBetweenSeamstresses(...args)
+}
+
+export const listStockMovements = (...args: Parameters<typeof neonStore.listStockMovements>) => {
+  assertInventoryDatabaseConfigured()
+  return neonStore.listStockMovements(...args)
+}

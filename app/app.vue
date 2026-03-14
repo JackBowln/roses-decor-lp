@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import 'vue-sonner/style.css'
 import { Toaster } from 'vue-sonner'
 import { useSmoothAnchorLinks } from '@/composables/useSmoothAnchorLinks'
 import { siteConfig } from '@/lib/site'

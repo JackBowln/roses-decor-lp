@@ -1,7 +1,9 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
+import { getApiErrorMessage } from '@/lib/apiError'
 import {
   calculateQuoteTotals,
+  createEmptyItemFabricConsumption,
   createEmptyLineItem,
   createEmptyQuoteRecord,
   formatCurrency,
@@ -41,7 +43,16 @@ const sanitizeRecord = (value: Partial<AdminQuoteRecord> | null | undefined): Ad
     seamstress: { ...base.seamstress, ...value.seamstress },
     installer: { ...base.installer, ...value.installer },
     items: Array.isArray(value.items) && value.items.length > 0
-      ? value.items.map((item) => ({ ...createEmptyLineItem(), ...item }))
+      ? value.items.map((item) => ({
+          ...createEmptyLineItem(),
+          ...item,
+          fabricConsumptions: Array.isArray(item.fabricConsumptions)
+            ? item.fabricConsumptions.map((consumption) => ({
+                ...createEmptyItemFabricConsumption(),
+                ...consumption,
+              }))
+            : [],
+        }))
       : base.items,
   }
 }
@@ -160,6 +171,10 @@ export function useAdminQuoteBuilder() {
     record.value.items.push({
       ...item,
       id: createEmptyLineItem().id,
+      fabricConsumptions: (item.fabricConsumptions || []).map((consumption) => ({
+        ...consumption,
+        id: createEmptyItemFabricConsumption().id,
+      })),
     })
   }
 
@@ -238,7 +253,7 @@ export function useAdminQuoteBuilder() {
       lastResolvedZipcode.value = zipcode
     }
     catch (error) {
-      zipcodeLookupError.value = error instanceof Error ? error.message : 'Não foi possível consultar o CEP.'
+      zipcodeLookupError.value = getApiErrorMessage(error, 'Não foi possível consultar o CEP.')
     }
     finally {
       isResolvingZipcode.value = false
@@ -320,16 +335,7 @@ export function useAdminQuoteBuilder() {
       toast.success('Documento enviado por e-mail.')
     }
     catch (error) {
-      const message
-        = typeof error === 'object'
-          && error !== null
-          && 'data' in error
-          && typeof (error as { data?: { statusMessage?: string } }).data?.statusMessage === 'string'
-          ? (error as { data: { statusMessage: string } }).data.statusMessage
-          : error instanceof Error
-            ? error.message
-            : 'Falha no envio.'
-      toast.error(message)
+      toast.error(getApiErrorMessage(error, 'Falha no envio.'))
     }
     finally {
       setSending(key, false)

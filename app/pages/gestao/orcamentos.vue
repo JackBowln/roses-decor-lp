@@ -3,7 +3,9 @@ import { toast } from 'vue-sonner'
 import AdminDocumentCard from '@/components/admin/AdminDocumentCard.vue'
 import AdminQuoteItemCard from '@/components/admin/AdminQuoteItemCard.vue'
 import AdminTabs from '@/components/admin/AdminTabs.vue'
+import { getApiErrorMessage } from '@/lib/apiError'
 import { formatCurrency, quoteWorkbookTabs } from '@/lib/adminQuote'
+import type { FabricRecord, SeamstressRecord, SeamstressStockBalanceView, StoredFinalQuote } from '@/lib/quoteWorkspace'
 
 definePageMeta({
   layout: 'admin',
@@ -43,6 +45,12 @@ const linkedPreQuoteId = ref<string | null>(null)
 const linkedPreQuoteCode = ref('')
 const linkedCustomerName = ref('')
 const linkedCustomerLocation = ref('')
+const selectedSeamstressId = ref<string | null>(null)
+const quoteStatus = ref<StoredFinalQuote['status']>('rascunho')
+const seamstresses = ref<SeamstressRecord[]>([])
+const fabrics = ref<FabricRecord[]>([])
+const stockBalances = ref<SeamstressStockBalanceView[]>([])
+const isLoadingInventory = ref(false)
 const isLoadingRecord = ref(false)
 const isSavingRecord = ref(false)
 const lastSavedAt = ref('')
@@ -51,6 +59,8 @@ interface LoadedFinalQuotePayload {
   id: string
   customerId: string
   preQuoteId: string | null
+  seamstressId: string | null
+  status: StoredFinalQuote['status']
   record: typeof record.value
   updatedAt: string
   customer: {
@@ -62,6 +72,13 @@ interface LoadedFinalQuotePayload {
     id: string
     code: string
   } | null
+  seamstress: {
+    id: string
+    name: string
+    email: string
+    whatsapp: string
+    status: string
+  } | null
 }
 
 const applyLoadedQuote = (payload: LoadedFinalQuotePayload) => {
@@ -72,8 +89,102 @@ const applyLoadedQuote = (payload: LoadedFinalQuotePayload) => {
   linkedPreQuoteCode.value = payload.preQuote?.code || ''
   linkedCustomerName.value = payload.customer?.name || ''
   linkedCustomerLocation.value = payload.customer?.locationLabel || ''
+  selectedSeamstressId.value = payload.seamstressId
+  quoteStatus.value = payload.status
   lastSavedAt.value = payload.updatedAt
 }
+
+const activeSeamstresses = computed(() => {
+  const currentId = selectedSeamstressId.value
+
+  return seamstresses.value.filter((seamstress) =>
+    seamstress.status === 'ativa' || seamstress.id === currentId,
+  )
+})
+
+const activeFabrics = computed(() => {
+  const linkedFabricIds = new Set(
+    record.value.items.flatMap((item) =>
+      (item.fabricConsumptions || [])
+        .map((consumption) => consumption.fabricId)
+        .filter(Boolean),
+    ),
+  )
+
+  return fabrics.value.filter((fabric) => fabric.status === 'ativo' || linkedFabricIds.has(fabric.id))
+})
+
+const stockByFabricId = computed<Record<string, number>>(() =>
+  stockBalances.value.reduce<Record<string, number>>((accumulator, balance) => {
+    accumulator[balance.fabricId] = balance.balanceMeters
+    return accumulator
+  }, {}))
+
+const syncSelectedSeamstressSnapshot = () => {
+  if (!selectedSeamstressId.value) {
+    record.value.seamstress.name = ''
+    record.value.seamstress.email = ''
+    record.value.seamstress.whatsapp = ''
+    return
+  }
+
+  const seamstress = seamstresses.value.find((entry) => entry.id === selectedSeamstressId.value) || null
+
+  if (!seamstress) {
+    return
+  }
+
+  record.value.seamstress.name = seamstress.name
+  record.value.seamstress.email = seamstress.email
+  record.value.seamstress.whatsapp = seamstress.whatsapp
+}
+
+const loadInventoryReferences = async () => {
+  try {
+    isLoadingInventory.value = true
+    const [seamstressResponse, fabricResponse] = await Promise.all([
+      $fetch<{ seamstresses: SeamstressRecord[] }>('/api/admin/seamstresses?status=all', {
+        credentials: 'include',
+      }),
+      $fetch<{ fabrics: FabricRecord[] }>('/api/admin/fabrics?status=all', {
+        credentials: 'include',
+      }),
+    ])
+
+    seamstresses.value = seamstressResponse.seamstresses
+    fabrics.value = fabricResponse.fabrics
+    syncSelectedSeamstressSnapshot()
+  }
+  catch (error) {
+    toast.error(getApiErrorMessage(error, 'Não foi possível carregar costureiras e tecidos.'))
+  }
+  finally {
+    isLoadingInventory.value = false
+  }
+}
+
+const loadStockBalances = async () => {
+  if (!selectedSeamstressId.value) {
+    stockBalances.value = []
+    return
+  }
+
+  try {
+    const response = await $fetch<{ balances: SeamstressStockBalanceView[] }>(`/api/admin/stocks?seamstressId=${selectedSeamstressId.value}`, {
+      credentials: 'include',
+    })
+    stockBalances.value = response.balances
+  }
+  catch (error) {
+    stockBalances.value = []
+    toast.error(getApiErrorMessage(error, 'Não foi possível carregar o saldo da costureira.'))
+  }
+}
+
+watch(selectedSeamstressId, async (value) => {
+  syncSelectedSeamstressSnapshot()
+  await loadStockBalances()
+})
 
 const loadQuoteFromRoute = async () => {
   const quoteId = typeof route.query.quoteId === 'string' ? route.query.quoteId : ''
@@ -85,6 +196,9 @@ const loadQuoteFromRoute = async () => {
     linkedPreQuoteCode.value = ''
     linkedCustomerName.value = ''
     linkedCustomerLocation.value = ''
+    selectedSeamstressId.value = null
+    quoteStatus.value = 'rascunho'
+    stockBalances.value = []
     lastSavedAt.value = ''
     return
   }
@@ -97,14 +211,7 @@ const loadQuoteFromRoute = async () => {
     applyLoadedQuote(payload)
   }
   catch (error) {
-    const message = typeof error === 'object'
-      && error !== null
-      && 'data' in error
-      && typeof (error as { data?: { statusMessage?: string } }).data?.statusMessage === 'string'
-      ? (error as { data: { statusMessage: string } }).data.statusMessage
-      : 'Não foi possível carregar o orçamento final.'
-
-    toast.error(message)
+    toast.error(getApiErrorMessage(error, 'Não foi possível carregar o orçamento final.'))
   }
   finally {
     isLoadingRecord.value = false
@@ -114,6 +221,15 @@ const loadQuoteFromRoute = async () => {
 const saveCurrentQuote = async () => {
   try {
     isSavingRecord.value = true
+    const hasFabricConsumptions = record.value.items.some((item) =>
+      (item.fabricConsumptions || []).some((consumption) => Boolean(consumption.fabricId) || Boolean(consumption.quantityMeters)),
+    )
+
+    if (hasFabricConsumptions && !selectedSeamstressId.value) {
+      toast.error('Selecione a costureira antes de salvar baixas de tecido.')
+      return
+    }
+
     const response = await $fetch<{ ok: true; finalQuote: LoadedFinalQuotePayload }>('/api/admin/final-quotes/save', {
       method: 'POST',
       credentials: 'include',
@@ -121,6 +237,8 @@ const saveCurrentQuote = async () => {
         id: activeQuoteId.value,
         customerId: linkedCustomerId.value,
         preQuoteId: linkedPreQuoteId.value,
+        seamstressId: selectedSeamstressId.value,
+        status: quoteStatus.value,
         record: record.value,
       },
     })
@@ -139,14 +257,7 @@ const saveCurrentQuote = async () => {
     toast.success('Orçamento salvo com sucesso.')
   }
   catch (error) {
-    const message = typeof error === 'object'
-      && error !== null
-      && 'data' in error
-      && typeof (error as { data?: { statusMessage?: string } }).data?.statusMessage === 'string'
-      ? (error as { data: { statusMessage: string } }).data.statusMessage
-      : 'Não foi possível salvar o orçamento.'
-
-    toast.error(message)
+    toast.error(getApiErrorMessage(error, 'Não foi possível salvar o orçamento.'))
   }
   finally {
     isSavingRecord.value = false
@@ -161,12 +272,16 @@ const startEmptyQuote = async () => {
   linkedPreQuoteCode.value = ''
   linkedCustomerName.value = ''
   linkedCustomerLocation.value = ''
+  selectedSeamstressId.value = null
+  quoteStatus.value = 'rascunho'
+  stockBalances.value = []
   lastSavedAt.value = ''
   await navigateTo('/gestao/orcamentos', { replace: true })
 }
 
 onMounted(() => {
   void refreshSession()
+  void loadInventoryReferences()
 })
 
 watch(isReady, (ready) => {
@@ -297,7 +412,7 @@ const summaryStats = computed(() => [
             </label>
           </div>
 
-          <div class="fields-grid fields-grid-4">
+          <div class="fields-grid fields-grid-5">
             <label class="field field-wide">
               <span>Endereço</span>
               <input v-model="record.customer.address" type="text" autocomplete="street-address"
@@ -368,6 +483,14 @@ const summaryStats = computed(() => [
               <span>Responsável</span>
               <input v-model="record.project.salesRep" type="text" placeholder="Consultora responsável">
             </label>
+            <label class="field">
+              <span>Status</span>
+              <select v-model="quoteStatus">
+                <option value="rascunho">Rascunho</option>
+                <option value="pronto">Pronto</option>
+                <option value="cancelado">Cancelado</option>
+              </select>
+            </label>
           </div>
 
           <div class="fields-grid fields-grid-3">
@@ -436,6 +559,9 @@ const summaryStats = computed(() => [
             :item="item"
             :index="index"
             :disable-remove="record.items.length === 1"
+            :fabrics="activeFabrics"
+            :stock-by-fabric-id="stockByFabricId"
+            :seamstress-selected="Boolean(selectedSeamstressId)"
             @duplicate="duplicateItem(item)"
             @remove="removeItem(item.id)"
           />
@@ -476,17 +602,21 @@ const summaryStats = computed(() => [
 
           <div class="fields-grid fields-grid-3">
             <label class="field">
-              <span>Nome</span>
-              <input v-model="record.seamstress.name" type="text" placeholder="Nome da costureira">
+              <span>Costureira responsável</span>
+              <select v-model="selectedSeamstressId">
+                <option :value="null">Selecione</option>
+                <option v-for="seamstress in activeSeamstresses" :key="seamstress.id" :value="seamstress.id">
+                  {{ seamstress.name }}
+                </option>
+              </select>
             </label>
             <label class="field">
               <span>E-mail</span>
-              <input v-model="record.seamstress.email" type="email" placeholder="costura@email.com">
+              <input v-model="record.seamstress.email" type="email" placeholder="costura@email.com" readonly>
             </label>
             <label class="field">
               <span>WhatsApp</span>
-              <input :value="record.seamstress.whatsapp" type="text" inputmode="tel" placeholder="(27) 99999-9999"
-                @input="updateStakeholderPhone('seamstress', ($event.target as HTMLInputElement).value)">
+              <input :value="record.seamstress.whatsapp" type="text" inputmode="tel" placeholder="(27) 99999-9999" readonly>
             </label>
           </div>
 
@@ -500,6 +630,17 @@ const summaryStats = computed(() => [
             <ul>
               <li v-for="line in documents[1].summary.lines.slice(0, 8)" :key="line">{{ line }}</li>
             </ul>
+          </div>
+
+          <div v-if="selectedSeamstressId" class="preview-block">
+            <span class="section-kicker">Saldo rápido</span>
+            <ul v-if="stockBalances.length">
+              <li v-for="balance in stockBalances.slice(0, 6)" :key="balance.id">
+                {{ balance.fabric.name }}<span v-if="balance.fabric.colorOrCollection"> • {{ balance.fabric.colorOrCollection }}</span>
+                : {{ balance.balanceMeters.toFixed(2) }} m
+              </li>
+            </ul>
+            <p v-else>Sem estoque cadastrado para esta costureira.</p>
           </div>
         </section>
 
@@ -739,6 +880,10 @@ const summaryStats = computed(() => [
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.fields-grid-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .field-wide {
   grid-column: span 2;
 }
@@ -922,7 +1067,8 @@ const summaryStats = computed(() => [
 @media (max-width: 900px) {
   .fields-grid-2,
   .fields-grid-3,
-  .fields-grid-4 {
+  .fields-grid-4,
+  .fields-grid-5 {
     grid-template-columns: 1fr;
   }
 

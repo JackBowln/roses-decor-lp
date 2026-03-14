@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { toast } from 'vue-sonner'
+import { getApiErrorMessage } from '@/lib/apiError'
+
 definePageMeta({
   layout: 'admin',
 })
@@ -28,7 +31,8 @@ const handleSubmit = async () => {
     }
   }
   catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Não foi possível autenticar.'
+    errorMessage.value = getApiErrorMessage(error, 'Não foi possível autenticar.')
+    toast.error(errorMessage.value)
   }
   finally {
     isSubmitting.value = false

@@ -7,12 +7,23 @@ import {
   type BlackoutOption,
   type FabricOption,
   type ProductCategory,
+  type QuoteItemFabricConsumption,
   type QuoteLineItem,
 } from '@/lib/adminQuote'
 
 export type PreQuoteOrigin = 'site'
 export type PreQuoteStatus = 'novo' | 'em_analise' | 'convertido'
-export type FinalQuoteStatus = 'rascunho' | 'pronto'
+export type FinalQuoteStatus = 'rascunho' | 'pronto' | 'cancelado'
+export type SeamstressStatus = 'ativa' | 'inativa'
+export type FabricStatus = 'ativo' | 'inativo'
+export type StockMovementType =
+  | 'entrada_manual'
+  | 'ajuste_manual_entrada'
+  | 'ajuste_manual_saida'
+  | 'transferencia_entrada'
+  | 'transferencia_saida'
+  | 'consumo_orcamento'
+  | 'estorno_orcamento'
 
 export interface CustomerRecord {
   id: string
@@ -78,10 +89,76 @@ export interface StoredFinalQuote {
   code: string
   customerId: string
   preQuoteId: string | null
+  seamstressId: string | null
   status: FinalQuoteStatus
   record: AdminQuoteRecord
   createdAt: string
   updatedAt: string
+}
+
+export interface SeamstressRecord {
+  id: string
+  name: string
+  email: string
+  whatsapp: string
+  notes: string
+  status: SeamstressStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FabricRecord {
+  id: string
+  name: string
+  category: string
+  colorOrCollection: string
+  unit: 'metro'
+  status: FabricStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SeamstressFabricStockRecord {
+  id: string
+  seamstressId: string
+  fabricId: string
+  balanceMeters: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StockMovementRecord {
+  id: string
+  seamstressId: string
+  fabricId: string
+  quoteId: string | null
+  quoteItemId: string | null
+  type: StockMovementType
+  quantityMeters: number
+  notes: string
+  createdAt: string
+}
+
+export interface QuoteFabricConsumptionRecord {
+  id: string
+  quoteId: string
+  quoteItemId: string
+  seamstressId: string
+  fabricId: string
+  quantityMeters: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SeamstressStockBalanceView extends SeamstressFabricStockRecord {
+  seamstress: Pick<SeamstressRecord, 'id' | 'name' | 'status'>
+  fabric: Pick<FabricRecord, 'id' | 'name' | 'category' | 'colorOrCollection' | 'unit' | 'status'>
+}
+
+export interface StockMovementListItem extends StockMovementRecord {
+  seamstress: Pick<SeamstressRecord, 'id' | 'name'>
+  fabric: Pick<FabricRecord, 'id' | 'name' | 'category' | 'colorOrCollection'>
+  quoteCode: string | null
 }
 
 export interface QuoteWorkspaceStore {
@@ -109,6 +186,8 @@ export interface PreQuoteListItem extends PreQuoteRecord {
 export interface FinalQuoteDetails extends StoredFinalQuote {
   customer: CustomerRecord | null
   preQuote: PreQuoteRecord | null
+  seamstress: SeamstressRecord | null
+  fabricConsumptions: QuoteFabricConsumptionRecord[]
 }
 
 const nowIso = () => new Date().toISOString()
@@ -125,13 +204,31 @@ export const createWorkspaceStore = (): QuoteWorkspaceStore => ({
 const buildYearScopedCode = (prefix: string) => {
   const now = new Date()
   const year = now.getFullYear()
-  const stamp = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-  const suffix = Math.random().toString(36).slice(2, 5).toUpperCase()
+  const stamp = [
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+  ].join('')
+  const suffix = Math.random().toString(36).slice(2, 7).toUpperCase()
   return `${prefix}-${year}-${stamp}-${suffix}`
 }
 
 export const createPreQuoteCode = () => buildYearScopedCode('PRE')
 export const createStoredFinalQuoteCode = () => buildYearScopedCode('ORC')
+
+export const normalizeMeters = (value: number | string | null | undefined) => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Math.round(value * 1000) / 1000 : null
+  }
+
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const parsed = Number.parseFloat(value.replace(',', '.').trim())
+  return Number.isFinite(parsed) ? Math.round(parsed * 1000) / 1000 : null
+}
 
 export const normalizeBlackout = (value: string): BlackoutOption => {
   const normalized = value.trim().toLowerCase()
@@ -388,6 +485,7 @@ export const createAdminQuoteFromPreQuote = (customer: CustomerRecord, preQuote:
 export const createFinalQuoteRecord = (input: {
   customerId: string
   preQuoteId: string | null
+  seamstressId?: string | null
   record: AdminQuoteRecord
 }) => {
   const now = nowIso()
@@ -396,10 +494,91 @@ export const createFinalQuoteRecord = (input: {
     code: input.record.project.code,
     customerId: input.customerId,
     preQuoteId: input.preQuoteId,
+    seamstressId: input.seamstressId ?? null,
     status: 'rascunho' as const,
     record: input.record,
     createdAt: now,
     updatedAt: now,
+  }
+}
+
+export const buildQuoteFabricConsumptionKey = (input: {
+  quoteItemId: string
+  fabricId: string
+  seamstressId: string
+}) => `${input.quoteItemId}::${input.fabricId}::${input.seamstressId}`
+
+export interface RequestedQuoteFabricConsumption {
+  quoteItemId: string
+  seamstressId: string
+  fabricId: string
+  quantityMeters: number
+}
+
+export const collectRequestedQuoteFabricConsumptions = (
+  record: AdminQuoteRecord,
+  seamstressId: string | null | undefined,
+): RequestedQuoteFabricConsumption[] => {
+  if (!seamstressId) {
+    return []
+  }
+
+  const entries = new Map<string, RequestedQuoteFabricConsumption>()
+
+  record.items.forEach((item) => {
+    ;(item.fabricConsumptions || []).forEach((consumption) => {
+      const quantityMeters = normalizeMeters(consumption.quantityMeters)
+
+      if (!consumption.fabricId || !quantityMeters || quantityMeters <= 0) {
+        return
+      }
+
+      const key = buildQuoteFabricConsumptionKey({
+        quoteItemId: item.id,
+        fabricId: consumption.fabricId,
+        seamstressId,
+      })
+      const current = entries.get(key)
+
+      if (current) {
+        current.quantityMeters = Math.round((current.quantityMeters + quantityMeters) * 1000) / 1000
+        return
+      }
+
+      entries.set(key, {
+        quoteItemId: item.id,
+        seamstressId,
+        fabricId: consumption.fabricId,
+        quantityMeters,
+      })
+    })
+  })
+
+  return [...entries.values()]
+}
+
+export const hydrateQuoteRecordWithFabricConsumptions = (
+  record: AdminQuoteRecord,
+  consumptions: QuoteFabricConsumptionRecord[],
+): AdminQuoteRecord => {
+  const byItemId = new Map<string, QuoteItemFabricConsumption[]>()
+
+  consumptions.forEach((consumption) => {
+    const current = byItemId.get(consumption.quoteItemId) || []
+    current.push({
+      id: consumption.id,
+      fabricId: consumption.fabricId,
+      quantityMeters: consumption.quantityMeters,
+    })
+    byItemId.set(consumption.quoteItemId, current)
+  })
+
+  return {
+    ...record,
+    items: record.items.map((item) => ({
+      ...item,
+      fabricConsumptions: byItemId.get(item.id) || item.fabricConsumptions || [],
+    })),
   }
 }
 
@@ -455,6 +634,8 @@ export const getFinalQuoteStatusLabel = (status: FinalQuoteStatus) => {
       return 'Rascunho'
     case 'pronto':
       return 'Pronto'
+    case 'cancelado':
+      return 'Cancelado'
   }
 }
 

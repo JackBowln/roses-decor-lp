@@ -7,6 +7,9 @@ const adminLinks = [
   { label: 'Pré-orçamentos', to: '/gestao/pre-orcamentos' },
   { label: 'Clientes', to: '/gestao/clientes' },
   { label: 'Orçamentos', to: '/gestao/orcamentos' },
+  { label: 'Costureiras', to: '/gestao/costureiras' },
+  { label: 'Tecidos', to: '/gestao/tecidos' },
+  { label: 'Estoque', to: '/gestao/estoque' },
 ]
 
 const handleLogout = async () => {

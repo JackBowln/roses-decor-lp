@@ -174,6 +174,8 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
     ...finalQuote,
     customer: store.customers.find((entry) => entry.id === finalQuote.customerId) || null,
     preQuote: finalQuote.preQuoteId ? store.preQuotes.find((entry) => entry.id === finalQuote.preQuoteId) || null : null,
+    seamstress: null,
+    fabricConsumptions: [],
   }
 }
 
@@ -248,6 +250,8 @@ export const saveFinalQuoteRecord = async (input: {
   id?: string | null
   customerId?: string | null
   preQuoteId?: string | null
+  seamstressId?: string | null
+  status?: StoredFinalQuote['status']
   record: AdminQuoteRecord
 }): Promise<StoredFinalQuote> => mutateStore(async (store) => {
   const customer = ensureCustomerForFinalQuote(store, input.record, input.customerId)
@@ -257,10 +261,11 @@ export const saveFinalQuoteRecord = async (input: {
   if (existing) {
     existing.customerId = customer.id
     existing.preQuoteId = input.preQuoteId ?? existing.preQuoteId
+    existing.seamstressId = input.seamstressId ?? existing.seamstressId ?? null
     existing.code = input.record.project.code
     existing.record = input.record
     existing.updatedAt = now
-    existing.status = 'rascunho'
+    existing.status = input.status ?? 'rascunho'
 
     if (existing.preQuoteId) {
       const linkedPreQuote = store.preQuotes.find((entry) => entry.id === existing.preQuoteId)
@@ -277,10 +282,12 @@ export const saveFinalQuoteRecord = async (input: {
   const created = createFinalQuoteRecord({
     customerId: customer.id,
     preQuoteId: input.preQuoteId ?? null,
+    seamstressId: input.seamstressId ?? null,
     record: input.record,
   })
 
   created.updatedAt = now
+  created.status = input.status ?? 'rascunho'
   store.finalQuotes.unshift(created)
 
   if (created.preQuoteId) {
