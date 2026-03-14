@@ -8,6 +8,7 @@ const adminLinks = [
   { label: 'Clientes', to: '/gestao/clientes' },
   { label: 'Orçamentos', to: '/gestao/orcamentos' },
   { label: 'Costureiras', to: '/gestao/costureiras' },
+  { label: 'Instaladores', to: '/gestao/instaladores' },
   { label: 'Tecidos', to: '/gestao/tecidos' },
   { label: 'Estoque', to: '/gestao/estoque' },
 ]

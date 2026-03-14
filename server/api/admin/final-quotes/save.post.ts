@@ -8,6 +8,7 @@ interface SaveFinalQuotePayload {
   customerId?: string | null
   preQuoteId?: string | null
   seamstressId?: string | null
+  installerId?: string | null
   status?: 'rascunho' | 'pronto' | 'cancelado'
   record?: AdminQuoteRecord
 }
@@ -28,6 +29,7 @@ export default defineEventHandler(async (event) => {
     customerId: body.customerId,
     preQuoteId: body.preQuoteId,
     seamstressId: body.seamstressId,
+    installerId: body.installerId,
     status: body.status,
     record: body.record,
   })

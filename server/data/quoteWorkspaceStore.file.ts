@@ -12,6 +12,8 @@ import {
   type CustomerRecord,
   type CustomerSummary,
   type FinalQuoteDetails,
+  type InstallerDispatchRecord,
+  type InstallerRecord,
   type PreQuoteListItem,
   type PreQuoteStatus,
   type PublicPreQuoteContact,
@@ -86,6 +88,8 @@ export const readQuoteWorkspaceStore = async (): Promise<QuoteWorkspaceStore> =>
       customers: Array.isArray(parsed.customers) ? parsed.customers : [],
       preQuotes: Array.isArray(parsed.preQuotes) ? parsed.preQuotes : [],
       finalQuotes: Array.isArray(parsed.finalQuotes) ? parsed.finalQuotes : [],
+      installers: Array.isArray(parsed.installers) ? parsed.installers : [],
+      installerDispatches: Array.isArray(parsed.installerDispatches) ? parsed.installerDispatches : [],
     }
   }
   catch {
@@ -175,7 +179,9 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
     customer: store.customers.find((entry) => entry.id === finalQuote.customerId) || null,
     preQuote: finalQuote.preQuoteId ? store.preQuotes.find((entry) => entry.id === finalQuote.preQuoteId) || null : null,
     seamstress: null,
+    installer: finalQuote.installerId ? store.installers.find((entry) => entry.id === finalQuote.installerId) || null : null,
     fabricConsumptions: [],
+    installerDispatches: store.installerDispatches.filter((entry) => entry.quoteId === finalQuote.id),
   }
 }
 
@@ -251,6 +257,7 @@ export const saveFinalQuoteRecord = async (input: {
   customerId?: string | null
   preQuoteId?: string | null
   seamstressId?: string | null
+  installerId?: string | null
   status?: StoredFinalQuote['status']
   record: AdminQuoteRecord
 }): Promise<StoredFinalQuote> => mutateStore(async (store) => {
@@ -262,6 +269,7 @@ export const saveFinalQuoteRecord = async (input: {
     existing.customerId = customer.id
     existing.preQuoteId = input.preQuoteId ?? existing.preQuoteId
     existing.seamstressId = input.seamstressId ?? existing.seamstressId ?? null
+    existing.installerId = input.installerId ?? existing.installerId ?? null
     existing.code = input.record.project.code
     existing.record = input.record
     existing.updatedAt = now
@@ -283,6 +291,7 @@ export const saveFinalQuoteRecord = async (input: {
     customerId: customer.id,
     preQuoteId: input.preQuoteId ?? null,
     seamstressId: input.seamstressId ?? null,
+    installerId: input.installerId ?? null,
     record: input.record,
   })
 
@@ -313,4 +322,93 @@ export const updatePreQuoteStatus = async (id: string, status: PreQuoteStatus) =
     preQuote.status = status
     preQuote.updatedAt = new Date().toISOString()
     return preQuote
+  })
+
+export const listInstallers = async (): Promise<InstallerRecord[]> => {
+  const store = await readQuoteWorkspaceStore()
+  return [...store.installers].sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'))
+}
+
+export const findInstallerById = async (id: string) => {
+  const store = await readQuoteWorkspaceStore()
+  return store.installers.find((entry) => entry.id === id) || null
+}
+
+export const saveInstaller = async (input: {
+  id?: string | null
+  name: string
+  email?: string
+  whatsapp?: string
+  notes?: string
+  status: InstallerRecord['status']
+}): Promise<InstallerRecord> => mutateStore(async (store) => {
+  const now = new Date().toISOString()
+  const existing = input.id ? store.installers.find((entry) => entry.id === input.id) : null
+
+  if (existing) {
+    existing.name = input.name.trim()
+    existing.email = input.email?.trim() || ''
+    existing.whatsapp = input.whatsapp?.trim() || ''
+    existing.notes = input.notes?.trim() || ''
+    existing.status = input.status
+    existing.updatedAt = now
+    return existing
+  }
+
+  const created: InstallerRecord = {
+    id: `ins_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    name: input.name.trim(),
+    email: input.email?.trim() || '',
+    whatsapp: input.whatsapp?.trim() || '',
+    notes: input.notes?.trim() || '',
+    status: input.status,
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  store.installers.unshift(created)
+  return created
+})
+
+export const listInstallerDispatches = async (filters?: {
+  installerId?: string
+  quoteId?: string
+  channel?: InstallerDispatchRecord['channel']
+  dateFrom?: string
+  dateTo?: string
+}) => {
+  const store = await readQuoteWorkspaceStore()
+
+  return store.installerDispatches
+    .filter((entry) => {
+      if (filters?.installerId && entry.installerId !== filters.installerId) {
+        return false
+      }
+      if (filters?.quoteId && entry.quoteId !== filters.quoteId) {
+        return false
+      }
+      if (filters?.channel && entry.channel !== filters.channel) {
+        return false
+      }
+      if (filters?.dateFrom && entry.createdAt < filters.dateFrom) {
+        return false
+      }
+      if (filters?.dateTo && entry.createdAt > `${filters.dateTo}T23:59:59.999Z`) {
+        return false
+      }
+      return true
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+}
+
+export const createInstallerDispatch = async (input: Omit<InstallerDispatchRecord, 'id' | 'createdAt'>) =>
+  mutateStore(async (store) => {
+    const created: InstallerDispatchRecord = {
+      id: `ind_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      ...input,
+    }
+
+    store.installerDispatches.unshift(created)
+    return created
   })

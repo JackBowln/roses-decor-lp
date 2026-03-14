@@ -8,6 +8,7 @@ import {
   type AdminQuoteRecord,
   type QuoteDocumentKind,
 } from '@/lib/adminQuote'
+import { buildInstallerInstallationSummary } from '@/lib/quoteWorkspace'
 
 interface PdfTextLine {
   text: string
@@ -421,9 +422,187 @@ const createClientQuoteStreams = (record: AdminQuoteRecord) => {
   return pages
 }
 
+const createInstallerQuoteStreams = (record: AdminQuoteRecord) => {
+  const summary = buildInstallerInstallationSummary(record)
+  const pages: string[] = []
+  const contentWidth = PAGE_WIDTH - PAGE_MARGIN_X * 2
+  const clientCardWidth = 280
+  const installerCardX = PAGE_MARGIN_X + clientCardWidth + 16
+  const installerCardWidth = contentWidth - clientCardWidth - 16
+  const columns = {
+    environment: PAGE_MARGIN_X + 12,
+    details: PAGE_MARGIN_X + 142,
+    meters: PAGE_WIDTH - PAGE_MARGIN_X - 88,
+  }
+
+  let commands: string[] = []
+  let currentY = 0
+
+  const startPage = (continued = false) => {
+    commands = []
+    drawRect(commands, PAGE_MARGIN_X, PAGE_HEIGHT - 146, contentWidth, 104, COLORS.warmSurfaceStrong)
+    drawText(commands, 'Ficha de instalacao', PAGE_MARGIN_X + 18, PAGE_HEIGHT - 78, {
+      size: 18,
+      bold: true,
+      color: COLORS.textDark,
+    })
+    drawText(commands, continued ? `Projeto ${record.project.code} - continuacao` : `Projeto ${record.project.code}`, PAGE_MARGIN_X + 18, PAGE_HEIGHT - 102, {
+      size: 12,
+      color: COLORS.textMuted,
+    })
+    drawText(commands, `Data de instalacao/entrega ${summary.installationDate || 'pendente'} | Gerado em ${new Date().toLocaleDateString('pt-BR')}`, PAGE_MARGIN_X + 18, PAGE_HEIGHT - 118, {
+      size: 10,
+      color: COLORS.textMuted,
+    })
+
+    drawRect(commands, PAGE_MARGIN_X, PAGE_HEIGHT - 282, clientCardWidth, 112, COLORS.warmSurface)
+    drawStrokeRect(commands, PAGE_MARGIN_X, PAGE_HEIGHT - 282, clientCardWidth, 112, COLORS.border)
+    drawText(commands, 'Cliente e obra', PAGE_MARGIN_X + 16, PAGE_HEIGHT - 190, {
+      size: 11,
+      bold: true,
+      color: COLORS.accent,
+    })
+    drawWrappedTextBlock(commands, summary.customerName, PAGE_MARGIN_X + 16, PAGE_HEIGHT - 208, clientCardWidth - 32, {
+      size: 15,
+      bold: true,
+      maxLines: 1,
+    })
+    drawWrappedTextBlock(commands, `${summary.customerPhone || 'Telefone pendente'} | ${summary.customerEmail || 'E-mail pendente'}`, PAGE_MARGIN_X + 16, PAGE_HEIGHT - 228, clientCardWidth - 32, {
+      size: 9,
+      color: COLORS.textMuted,
+      lineHeight: 11,
+      maxLines: 2,
+    })
+    drawWrappedTextBlock(commands, summary.addressLine, PAGE_MARGIN_X + 16, PAGE_HEIGHT - 252, clientCardWidth - 32, {
+      size: 9,
+      color: COLORS.textMuted,
+      lineHeight: 11,
+      maxLines: 3,
+    })
+
+    drawRect(commands, installerCardX, PAGE_HEIGHT - 282, installerCardWidth, 112, COLORS.white)
+    drawStrokeRect(commands, installerCardX, PAGE_HEIGHT - 282, installerCardWidth, 112, COLORS.border)
+    drawText(commands, 'Instalador responsavel', installerCardX + 16, PAGE_HEIGHT - 190, {
+      size: 11,
+      bold: true,
+      color: COLORS.accent,
+    })
+    drawWrappedTextBlock(commands, record.installer.name || 'Nao informado', installerCardX + 16, PAGE_HEIGHT - 208, installerCardWidth - 32, {
+      size: 15,
+      bold: true,
+      maxLines: 1,
+    })
+    drawWrappedTextBlock(commands, `${record.installer.whatsapp || 'WhatsApp pendente'} | ${record.installer.email || 'E-mail pendente'}`, installerCardX + 16, PAGE_HEIGHT - 228, installerCardWidth - 32, {
+      size: 9,
+      color: COLORS.textMuted,
+      lineHeight: 11,
+      maxLines: 2,
+    })
+    drawWrappedTextBlock(commands, `Itens instalaveis: ${summary.installableItemCount} | Total de metros: ${summary.totalMeters.toFixed(2)} m`, installerCardX + 16, PAGE_HEIGHT - 252, installerCardWidth - 32, {
+      size: 9,
+      color: COLORS.textDark,
+      lineHeight: 11,
+      maxLines: 2,
+    })
+
+    drawRect(commands, PAGE_MARGIN_X, PAGE_HEIGHT - 326, contentWidth, 26, COLORS.accent)
+    drawText(commands, 'Ambiente', columns.environment, PAGE_HEIGHT - 310, { size: 10, bold: true, color: COLORS.white })
+    drawText(commands, 'Detalhes tecnicos', columns.details, PAGE_HEIGHT - 310, { size: 10, bold: true, color: COLORS.white })
+    drawText(commands, 'Metros', columns.meters, PAGE_HEIGHT - 310, { size: 10, bold: true, color: COLORS.white })
+
+    currentY = PAGE_HEIGHT - 346
+  }
+
+  const flushPage = () => {
+    pages.push(commands.join('\n'))
+  }
+
+  startPage()
+
+  summary.items.forEach((item, index) => {
+    const detailLines = [
+      `${item.category} | ${item.openingLabel}`,
+      `Medidas: ${item.dimensionsLabel} | Quantidade: ${item.quantity}`,
+      item.notes ? `Observacoes: ${item.notes}` : '',
+    ].filter(Boolean)
+    const wrappedDetailLines = detailLines.flatMap((line) => wrapText(line, 9, 250))
+    const rowHeight = Math.max(44, 20 + wrappedDetailLines.length * 12)
+
+    if (currentY - rowHeight < 150) {
+      flushPage()
+      startPage(true)
+    }
+
+    drawStrokeRect(commands, PAGE_MARGIN_X, currentY - rowHeight + 8, contentWidth, rowHeight, COLORS.border)
+    drawText(commands, item.room || `Item ${index + 1}`, columns.environment, currentY - 10, {
+      size: 10,
+      bold: true,
+      color: COLORS.textDark,
+    })
+
+    wrappedDetailLines.forEach((line, lineIndex) => {
+      drawText(commands, line, columns.details, currentY - 10 - lineIndex * 12, {
+        size: 9,
+        color: lineIndex === 0 ? COLORS.textDark : COLORS.textMuted,
+      })
+    })
+
+    drawText(commands, `${item.installationMeters.toFixed(2)} m`, columns.meters, currentY - 10, {
+      size: 10,
+      bold: true,
+      color: COLORS.textDark,
+    })
+
+    currentY -= rowHeight
+  })
+
+  if (currentY < 176) {
+    flushPage()
+    startPage(true)
+  }
+
+  drawRect(commands, PAGE_MARGIN_X, 104, contentWidth, 52, COLORS.warmSurfaceStrong)
+  drawText(commands, 'Total de metros para instalacao', PAGE_MARGIN_X + 16, 136, {
+    size: 11,
+    bold: true,
+    color: COLORS.textDark,
+  })
+  drawText(commands, `${summary.totalMeters.toFixed(2)} m`, PAGE_MARGIN_X + 16, 116, {
+    size: 18,
+    bold: true,
+    color: COLORS.textDark,
+  })
+
+  drawRect(commands, PAGE_MARGIN_X, 42, contentWidth, 50, COLORS.warmSurface)
+  drawStrokeRect(commands, PAGE_MARGIN_X, 42, contentWidth, 50, COLORS.border)
+  drawWrappedTextBlock(commands, record.installer.notes || record.project.notes || 'Sem observacoes adicionais para instalacao.', PAGE_MARGIN_X + 14, 72, contentWidth - 28, {
+    size: 9,
+    color: COLORS.textMuted,
+    lineHeight: 10,
+    maxLines: 2,
+  })
+  drawText(commands, `Cliente: ${summary.customerName} | Projeto ${record.project.code}`, PAGE_MARGIN_X + 14, 52, {
+    size: 8,
+    color: COLORS.textMuted,
+  })
+
+  flushPage()
+
+  return pages
+}
+
 export const generateQuotePdf = (record: AdminQuoteRecord, kind: QuoteDocumentKind) => {
   if (kind === 'cliente') {
     const streams = createClientQuoteStreams(record)
+
+    return {
+      filename: getDocumentSummary(record, kind).filename,
+      bytes: buildPdfFromStreams(streams),
+    }
+  }
+
+  if (kind === 'instalador') {
+    const streams = createInstallerQuoteStreams(record)
 
     return {
       filename: getDocumentSummary(record, kind).filename,

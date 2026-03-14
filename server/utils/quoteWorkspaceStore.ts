@@ -3,11 +3,11 @@ import * as fileStore from '../data/quoteWorkspaceStore.file'
 import * as neonStore from '../data/quoteWorkspaceStore.neon'
 
 const shouldUseNeonStore = () => neonStore.isNeonQuoteWorkspaceConfigured()
-const assertInventoryDatabaseConfigured = () => {
+const assertOperationalDatabaseConfigured = () => {
   if (!shouldUseNeonStore()) {
     throw createError({
       statusCode: 503,
-      statusMessage: 'O módulo de estoque exige NETLIFY_DATABASE_URL, NEON_DATABASE_URL ou DATABASE_URL configurado.',
+      statusMessage: 'Os módulos operacionais exigem NETLIFY_DATABASE_URL, NEON_DATABASE_URL ou DATABASE_URL configurado.',
     })
   }
 }
@@ -62,12 +62,15 @@ export const saveFinalQuoteRecord = (...args: Parameters<typeof fileStore.saveFi
     const [input] = args
     const usesInventoryModule = Boolean(
       input.seamstressId !== undefined
+      || input.installerId !== undefined
       || input.status !== undefined
+      || Boolean(input.record.project.installationDate)
+      || input.record.items.some((item) => item.installationMeters !== null)
       || input.record.items.some((item) => Array.isArray(item.fabricConsumptions)),
     )
 
     if (usesInventoryModule) {
-      assertInventoryDatabaseConfigured()
+      assertOperationalDatabaseConfigured()
       return neonStore.saveFinalQuoteRecord(...args)
     }
 
@@ -82,41 +85,66 @@ export const updatePreQuoteStatus = (...args: Parameters<typeof fileStore.update
     : fileStore.updatePreQuoteStatus(...args)
 
 export const listSeamstresses = (...args: Parameters<typeof neonStore.listSeamstresses>) => {
-  assertInventoryDatabaseConfigured()
+  assertOperationalDatabaseConfigured()
   return neonStore.listSeamstresses(...args)
 }
 
 export const saveSeamstressRecord = (...args: Parameters<typeof neonStore.saveSeamstressRecord>) => {
-  assertInventoryDatabaseConfigured()
+  assertOperationalDatabaseConfigured()
   return neonStore.saveSeamstressRecord(...args)
 }
 
 export const listFabrics = (...args: Parameters<typeof neonStore.listFabrics>) => {
-  assertInventoryDatabaseConfigured()
+  assertOperationalDatabaseConfigured()
   return neonStore.listFabrics(...args)
 }
 
 export const saveFabricRecord = (...args: Parameters<typeof neonStore.saveFabricRecord>) => {
-  assertInventoryDatabaseConfigured()
+  assertOperationalDatabaseConfigured()
   return neonStore.saveFabricRecord(...args)
 }
 
 export const listSeamstressStockBalances = (...args: Parameters<typeof neonStore.listSeamstressStockBalances>) => {
-  assertInventoryDatabaseConfigured()
+  assertOperationalDatabaseConfigured()
   return neonStore.listSeamstressStockBalances(...args)
 }
 
 export const applyManualStockMovement = (...args: Parameters<typeof neonStore.applyManualStockMovement>) => {
-  assertInventoryDatabaseConfigured()
+  assertOperationalDatabaseConfigured()
   return neonStore.applyManualStockMovement(...args)
 }
 
 export const transferStockBetweenSeamstresses = (...args: Parameters<typeof neonStore.transferStockBetweenSeamstresses>) => {
-  assertInventoryDatabaseConfigured()
+  assertOperationalDatabaseConfigured()
   return neonStore.transferStockBetweenSeamstresses(...args)
 }
 
 export const listStockMovements = (...args: Parameters<typeof neonStore.listStockMovements>) => {
-  assertInventoryDatabaseConfigured()
+  assertOperationalDatabaseConfigured()
   return neonStore.listStockMovements(...args)
+}
+
+export const listInstallers = (...args: Parameters<typeof neonStore.listInstallers>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.listInstallers(...args)
+}
+
+export const saveInstaller = (...args: Parameters<typeof neonStore.saveInstaller>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.saveInstaller(...args)
+}
+
+export const findInstallerById = (...args: Parameters<typeof neonStore.findInstallerById>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.findInstallerById(...args)
+}
+
+export const listInstallerDispatches = (...args: Parameters<typeof neonStore.listInstallerDispatches>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.listInstallerDispatches(...args)
+}
+
+export const createInstallerDispatch = (...args: Parameters<typeof neonStore.createInstallerDispatch>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.createInstallerDispatch(...args)
 }

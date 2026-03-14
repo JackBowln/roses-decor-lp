@@ -228,6 +228,13 @@ const getStockHint = (fabricId: string) => {
         <span>Lado do comando</span>
         <input v-model="item.controlSide" type="text" placeholder="Direita, esquerda, motorizado...">
       </label>
+
+      <label v-if="item.installationIncluded === 'SIM'" class="field">
+        <span>Metros de instalação</span>
+        <input :value="item.installationMeters ?? ''" type="number" min="0.01" step="0.01" placeholder="3.50"
+          @input="item.installationMeters = parseNullableNumber(($event.target as HTMLInputElement).value)">
+        <small class="field-hint">Se ficar vazio, o sistema usa a largura do item como metragem de instalação.</small>
+      </label>
     </div>
 
     <div class="fields-grid fields-grid-3">

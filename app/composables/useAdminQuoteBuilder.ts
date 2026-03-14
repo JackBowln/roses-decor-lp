@@ -6,9 +6,9 @@ import {
   createEmptyItemFabricConsumption,
   createEmptyLineItem,
   createEmptyQuoteRecord,
-  formatCurrency,
   getDeliveryChecklist,
   getDocumentSummary,
+  isInstallerDocumentReady,
   isRecordReadyForClientDelivery,
   normalizePhone,
   type AdminQuoteRecord,
@@ -17,6 +17,7 @@ import {
   type QuoteTabId,
 } from '@/lib/adminQuote'
 import { digitsOnly, formatPhoneMask, formatStateMask, formatZipcodeMask, isValidEmail, isValidPhone, isValidZipcode } from '@/lib/fieldMasks'
+import { calculateInstallationMetersTotal } from '@/lib/quoteWorkspace'
 import { generateQuotePdf } from '@/lib/adminQuotePdf'
 
 const STORAGE_KEY = 'roses-decor-admin-quote-draft'
@@ -44,15 +45,15 @@ const sanitizeRecord = (value: Partial<AdminQuoteRecord> | null | undefined): Ad
     installer: { ...base.installer, ...value.installer },
     items: Array.isArray(value.items) && value.items.length > 0
       ? value.items.map((item) => ({
-          ...createEmptyLineItem(),
-          ...item,
-          fabricConsumptions: Array.isArray(item.fabricConsumptions)
-            ? item.fabricConsumptions.map((consumption) => ({
-                ...createEmptyItemFabricConsumption(),
-                ...consumption,
-              }))
-            : [],
-        }))
+        ...createEmptyLineItem(),
+        ...item,
+        fabricConsumptions: Array.isArray(item.fabricConsumptions)
+          ? item.fabricConsumptions.map((consumption) => ({
+            ...createEmptyItemFabricConsumption(),
+            ...consumption,
+          }))
+          : [],
+      }))
       : base.items,
   }
 }
@@ -72,6 +73,45 @@ const downloadBlob = (filename: string, bytes: Uint8Array, mimeType: string) => 
 
 const buildWhatsAppUrl = (phone: string, text: string) => `https://wa.me/${normalizePhone(phone)}?text=${encodeURIComponent(text)}`
 
+const buildWhatsAppDocumentMessage = (
+  kind: QuoteDocumentKind,
+  input: {
+    projectCode: string
+    pdfUrl: string
+    customerName: string
+  },
+) => {
+  if (kind === 'costureira') {
+    return [
+      'Oi! Tudo bem?',
+      `Aqui está a ficha de costura,`,
+      "cliente: " + input.customerName,
+      "",
+      'Se surgir qualquer dúvida sobre tecido, medidas ou acabamento, só me chamar.',
+    ].join('\n')
+  }
+
+  if (kind === 'instalador') {
+    return [
+      'Oi! Tudo bem?',
+      `Separei a ficha de instalação do projeto ${input.projectCode}.`,
+      '',
+      `Você pode baixar o PDF por este link: ${input.pdfUrl}`,
+      '',
+      'Se precisar confirmar endereço, medidas ou data, me chama por aqui.',
+    ].join('\n')
+  }
+
+  return [
+    `Olá, ${input.customerName || 'tudo bem'}?`,
+    `Separei o seu orçamento ${input.projectCode}.`,
+    '',
+    `Você pode abrir o PDF por este link: ${input.pdfUrl}`,
+    '',
+    'Se quiser, depois me diga o que achou para ajustarmos juntos.',
+  ].join('\n')
+}
+
 export function useAdminQuoteBuilder() {
   const record = ref<AdminQuoteRecord>(createEmptyQuoteRecord())
   const activeTab = ref<QuoteTabId>('cliente')
@@ -89,6 +129,14 @@ export function useAdminQuoteBuilder() {
     zipcodeValid: !record.value.customer.zipcode || isValidZipcode(record.value.customer.zipcode),
   }))
   const canLookupZipcode = computed(() => digitsOnly(record.value.customer.zipcode).length === 8)
+  const installationSummary = computed(() => {
+    const installableItems = record.value.items.filter((item) => item.installationIncluded === 'SIM')
+
+    return {
+      totalMeters: calculateInstallationMetersTotal(record.value),
+      installableItemCount: installableItems.length,
+    }
+  })
   const clientReady = computed(() =>
     isRecordReadyForClientDelivery(record.value)
     && customerValidation.value.phoneValid
@@ -118,7 +166,7 @@ export function useAdminQuoteBuilder() {
       summary: getDocumentSummary(record.value, 'instalador'),
       email: record.value.installer.email,
       whatsapp: record.value.installer.whatsapp,
-      ready: Boolean(record.value.installer.email || record.value.installer.whatsapp),
+      ready: isInstallerDocumentReady(record.value),
     },
   ])
 
@@ -261,44 +309,81 @@ export function useAdminQuoteBuilder() {
   }
 
   const shareViaWhatsApp = async (kind: QuoteDocumentKind, phone: string) => {
-    const pdf = generateQuotePdf(record.value, kind)
-    const total = formatCurrency(totals.value.grandTotal)
-    const message = `Olá! Segue o PDF do documento ${record.value.project.code}. Total de referência: ${total}.`
-    const file = new File([pdf.bytes], pdf.filename, { type: 'application/pdf' })
+    const response = await $fetch<{ ok: true; publicPath: string }>('/api/admin/share-document', {
+      method: 'POST',
+      credentials: 'include',
+      body: {
+        kind,
+        record: record.value,
+      },
+    })
+    const pdfUrl = `${window.location.origin}${response.publicPath}${kind === 'costureira' || kind === 'instalador' ? '?download=1' : ''}`
+    const message = buildWhatsAppDocumentMessage(kind, {
+      projectCode: record.value.project.code,
+      pdfUrl,
+      customerName: record.value.customer.name,
+    })
 
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({
-        title: pdf.filename,
-        text: message,
-        files: [file],
-      })
-      return
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      toast.info('Em localhost, o link do PDF só ficará acessível nesta mesma máquina.')
     }
 
-    downloadBlob(pdf.filename, pdf.bytes, 'application/pdf')
-    window.open(buildWhatsAppUrl(phone, `${message} O PDF foi baixado e pode ser anexado na conversa.`), '_blank', 'noopener,noreferrer')
-    toast.info('O PDF foi baixado. Anexe-o na conversa do WhatsApp que foi aberta.')
+    window.open(buildWhatsAppUrl(phone, message), '_blank', 'noopener,noreferrer')
   }
 
   const setSending = (key: string, value: boolean) => {
     sending[key] = value
   }
 
-  const deliverDocument = async (kind: QuoteDocumentKind, channel: 'email' | 'whatsapp') => {
+  const logInstallerDispatch = async (input: {
+    quoteId: string
+    installerId: string
+    channel: 'email' | 'whatsapp'
+    status: 'enviado' | 'erro'
+    errorMessage?: string
+  }) => {
+    await $fetch('/api/admin/installers/dispatches/log', {
+      method: 'POST',
+      credentials: 'include',
+      body: {
+        quoteId: input.quoteId,
+        installerId: input.installerId,
+        channel: input.channel,
+        status: input.status,
+        errorMessage: input.errorMessage || '',
+        recipientEmail: record.value.installer.email,
+        recipientWhatsapp: record.value.installer.whatsapp,
+      },
+    })
+  }
+
+  const deliverDocument = async (
+    kind: QuoteDocumentKind,
+    channel: 'email' | 'whatsapp',
+    options?: {
+      quoteId?: string | null
+      installerId?: string | null
+    },
+  ) => {
     const target = documents.value.find((document) => document.kind === kind)
 
     if (!target) {
-      return
+      return false
     }
 
     if (channel === 'email' && !target.email) {
       toast.error('Defina um e-mail antes de enviar.')
-      return
+      return false
     }
 
     if (channel === 'whatsapp' && !target.whatsapp) {
       toast.error('Defina um WhatsApp antes de enviar.')
-      return
+      return false
+    }
+
+    if (kind === 'instalador' && (!options?.quoteId || !options?.installerId)) {
+      toast.error('Salve o orçamento e selecione um instalador antes de enviar a ficha.')
+      return false
     }
 
     const key = `${kind}-${channel}`
@@ -308,14 +393,24 @@ export function useAdminQuoteBuilder() {
 
       if (channel === 'whatsapp') {
         await shareViaWhatsApp(kind, target.whatsapp || '')
+        if (kind === 'instalador' && options?.quoteId && options?.installerId) {
+          await logInstallerDispatch({
+            quoteId: options.quoteId,
+            installerId: options.installerId,
+            channel,
+            status: 'enviado',
+          })
+        }
         toast.success('Fluxo de compartilhamento do WhatsApp iniciado.')
-        return
+        return true
       }
 
       await $fetch('/api/admin/deliver', {
         method: 'POST',
         credentials: 'include',
         body: {
+          quoteId: options?.quoteId,
+          installerId: options?.installerId,
           channel,
           kind,
           record: record.value,
@@ -333,9 +428,23 @@ export function useAdminQuoteBuilder() {
       })
 
       toast.success('Documento enviado por e-mail.')
+      return true
     }
     catch (error) {
+      if (kind === 'instalador' && channel === 'whatsapp' && options?.quoteId && options?.installerId) {
+        try {
+          await logInstallerDispatch({
+            quoteId: options.quoteId,
+            installerId: options.installerId,
+            channel,
+            status: 'erro',
+            errorMessage: getApiErrorMessage(error, 'Falha no envio.'),
+          })
+        }
+        catch { }
+      }
       toast.error(getApiErrorMessage(error, 'Falha no envio.'))
+      return false
     }
     finally {
       setSending(key, false)
@@ -364,6 +473,7 @@ export function useAdminQuoteBuilder() {
     duplicateItem,
     isResolvingZipcode,
     isReady,
+    installationSummary,
     lookupCustomerZipcode,
     record,
     removeItem,

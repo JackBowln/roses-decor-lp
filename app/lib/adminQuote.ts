@@ -47,6 +47,7 @@ export interface QuoteProject {
   code: string
   createdAt: string
   validUntil: string
+  installationDate: string
   salesRep: string
   paymentTerms: string
   deliveryLeadTime: string
@@ -80,6 +81,7 @@ export interface QuoteLineItem {
   mountType: MountType
   openingSide: OpeningSide
   controlSide: string
+  installationMeters: number | null
   unitPrice: PriceField
   sewingPrice: PriceField
   installationPrice: PriceField
@@ -263,6 +265,7 @@ export const createEmptyLineItem = (): QuoteLineItem => ({
   mountType: 'Teto',
   openingSide: 'Dupla abertura',
   controlSide: '',
+  installationMeters: null,
   unitPrice: null,
   sewingPrice: null,
   installationPrice: null,
@@ -286,6 +289,7 @@ export const createEmptyQuoteRecord = (): AdminQuoteRecord => ({
     code: createDraftQuoteCode(),
     createdAt: todayIso(),
     validUntil: plusDaysIso(15),
+    installationDate: '',
     salesRep: 'Roses Decor',
     paymentTerms: '50% no pedido e 50% na entrega.',
     deliveryLeadTime: '20 dias',
@@ -314,6 +318,20 @@ export const createEmptyQuoteRecord = (): AdminQuoteRecord => ({
 })
 
 const resolvePrice = (value: PriceField) => value ?? 0
+const resolveMeters = (value: number | null | undefined) => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
+const getInstallableItems = (record: AdminQuoteRecord) => record.items.filter((item) => item.installationIncluded === 'SIM')
+export const resolveInstallationMeters = (item: Pick<QuoteLineItem, 'installationMeters' | 'width'>) => {
+  const explicitMeters = resolveMeters(item.installationMeters)
+
+  if (explicitMeters > 0) {
+    return explicitMeters
+  }
+
+  return resolveMeters(item.width)
+}
+
+const getInstallationMetersTotal = (record: AdminQuoteRecord) =>
+  Math.round(getInstallableItems(record).reduce((total, item) => total + resolveInstallationMeters(item), 0) * 1000) / 1000
 
 export const calculateLineItemTotal = (item: QuoteLineItem) =>
   resolvePrice(item.unitPrice) * Math.max(item.quantity, 0) + resolvePrice(item.sewingPrice) + resolvePrice(item.installationPrice)
@@ -409,12 +427,14 @@ export const getSeamstressDocumentLines = (record: AdminQuoteRecord) => [
 export const getInstallerDocumentLines = (record: AdminQuoteRecord) => [
   `Pedido de instalação | Projeto ${record.project.code}`,
   `Cliente: ${record.customer.name || 'Não informado'} | Telefone: ${record.customer.phone || 'Não informado'}`,
-  `Endereço: ${record.customer.address || 'Pendente'}${record.customer.complement ? `, ${record.customer.complement}` : ''}${record.customer.neighborhood ? `, ${record.customer.neighborhood}` : ''}${record.customer.city ? `, ${record.customer.city}` : ''}${record.customer.state ? `/${record.customer.state}` : ''}`,
+  `Endereço: ${record.customer.address || 'Pendente'}${record.customer.complement ? `, ${record.customer.complement}` : ''}${record.customer.neighborhood ? `, ${record.customer.neighborhood}` : ''}${record.customer.city ? `, ${record.customer.city}` : ''}${record.customer.state ? `/${record.customer.state}` : ''}${record.customer.zipcode ? ` | CEP ${record.customer.zipcode}` : ''}`,
   `Instalador: ${record.installer.name || 'Não informado'} | Contato: ${record.installer.email || record.installer.whatsapp || 'Pendente'}`,
+  `Data de instalação/entrega: ${record.project.installationDate || 'Pendente'}`,
+  `Total de metros de instalação: ${getInstallationMetersTotal(record).toFixed(2)} m`,
   '',
-  ...record.items.flatMap((item, index) => [
+  ...getInstallableItems(record).flatMap((item, index) => [
     `${index + 1}. ${item.category} | ${item.room || 'Ambiente'} | ${item.openingLabel || 'Vão'}`,
-    `   Medidas de referência: ${formatArea(item.width, item.height)} | Quantidade: ${item.quantity}`,
+    `   Medidas de referência: ${formatArea(item.width, item.height)} | Quantidade: ${item.quantity} | Metros de instalação: ${resolveInstallationMeters(item).toFixed(2)} m`,
     `   Trilho: ${item.trackType} | Suporte parede: ${item.wallSupport} | Fixação: ${item.mountType}`,
     `   Deslizante: ${item.slider} | Terminal: ${item.terminal} | Instalação: ${item.installationIncluded}`,
     `   Comando / abertura: ${item.controlSide || item.openingSide}`,
@@ -471,7 +491,28 @@ export const getDeliveryChecklist = (record: AdminQuoteRecord): DeliveryStatusIt
     label: 'Instalador com contato definido',
     completed: Boolean(record.installer.email.trim() || normalizePhone(record.installer.whatsapp)),
   },
+  {
+    label: 'Ficha de instalação com data e metragem ou largura válida',
+    completed: Boolean(
+      record.project.installationDate
+      && getInstallableItems(record).length > 0
+      && getInstallableItems(record).every((item) => resolveInstallationMeters(item) > 0),
+    ),
+  },
 ]
+
+export const isInstallerDocumentReady = (record: AdminQuoteRecord) => {
+  const installableItems = getInstallableItems(record)
+
+  return Boolean(
+    record.customer.name.trim()
+    && (isValidPhone(record.customer.phone) || isValidEmail(record.customer.email))
+    && record.project.installationDate
+    && (record.installer.email.trim() || normalizePhone(record.installer.whatsapp))
+    && installableItems.length > 0
+    && installableItems.every((item) => resolveInstallationMeters(item) > 0),
+  )
+}
 
 export const isRecordReadyForClientDelivery = (record: AdminQuoteRecord) => {
   const customer = record.customer

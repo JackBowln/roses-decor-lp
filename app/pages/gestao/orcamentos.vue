@@ -4,13 +4,15 @@ import AdminDocumentCard from '@/components/admin/AdminDocumentCard.vue'
 import AdminQuoteItemCard from '@/components/admin/AdminQuoteItemCard.vue'
 import AdminTabs from '@/components/admin/AdminTabs.vue'
 import { getApiErrorMessage } from '@/lib/apiError'
-import { formatCurrency, quoteWorkbookTabs } from '@/lib/adminQuote'
-import { normalizeMeters, type FabricRecord, type SeamstressRecord, type SeamstressStockBalanceView, type StoredFinalQuote } from '@/lib/quoteWorkspace'
+import { calculateLineItemTotal, formatCurrency, quoteWorkbookTabs } from '@/lib/adminQuote'
+import { normalizeMeters, type FabricRecord, type InstallerDispatchRecord, type InstallerRecord, type SeamstressRecord, type SeamstressStockBalanceView, type StoredFinalQuote } from '@/lib/quoteWorkspace'
 
 definePageMeta({
   layout: 'admin',
   middleware: 'admin-auth',
 })
+
+const QUOTE_META_STORAGE_KEY = 'roses-decor-admin-quote-meta'
 
 const route = useRoute()
 const { refreshSession } = useAdminSession()
@@ -26,6 +28,7 @@ const {
   duplicateItem,
   isResolvingZipcode,
   isReady,
+  installationSummary,
   lookupCustomerZipcode,
   record,
   removeItem,
@@ -35,7 +38,6 @@ const {
   updateCustomerPhone,
   updateCustomerState,
   updateCustomerZipcode,
-  updateStakeholderPhone,
   zipcodeLookupError,
 } = useAdminQuoteBuilder()
 
@@ -46,20 +48,30 @@ const linkedPreQuoteCode = ref('')
 const linkedCustomerName = ref('')
 const linkedCustomerLocation = ref('')
 const selectedSeamstressId = ref<string | null>(null)
+const selectedInstallerId = ref<string | null>(null)
 const quoteStatus = ref<StoredFinalQuote['status']>('rascunho')
 const seamstresses = ref<SeamstressRecord[]>([])
+const installers = ref<InstallerRecord[]>([])
 const fabrics = ref<FabricRecord[]>([])
 const stockBalances = ref<SeamstressStockBalanceView[]>([])
+const installerDispatches = ref<InstallerDispatchRecord[]>([])
 const isLoadingInventory = ref(false)
 const isLoadingRecord = ref(false)
 const isSavingRecord = ref(false)
 const lastSavedAt = ref('')
+
+interface QuoteDraftMeta {
+  selectedSeamstressId: string | null
+  selectedInstallerId: string | null
+  quoteStatus: StoredFinalQuote['status']
+}
 
 interface LoadedFinalQuotePayload {
   id: string
   customerId: string
   preQuoteId: string | null
   seamstressId: string | null
+  installerId: string | null
   status: StoredFinalQuote['status']
   record: typeof record.value
   updatedAt: string
@@ -79,6 +91,14 @@ interface LoadedFinalQuotePayload {
     whatsapp: string
     status: string
   } | null
+  installer: {
+    id: string
+    name: string
+    email: string
+    whatsapp: string
+    status: string
+  } | null
+  installerDispatches: InstallerDispatchRecord[]
 }
 
 const applyLoadedQuote = (payload: LoadedFinalQuotePayload) => {
@@ -90,8 +110,62 @@ const applyLoadedQuote = (payload: LoadedFinalQuotePayload) => {
   linkedCustomerName.value = payload.customer?.name || ''
   linkedCustomerLocation.value = payload.customer?.locationLabel || ''
   selectedSeamstressId.value = payload.seamstressId
+  selectedInstallerId.value = payload.installerId
   quoteStatus.value = payload.status
+  installerDispatches.value = payload.installerDispatches || []
   lastSavedAt.value = payload.updatedAt
+}
+
+const restoreDraftMeta = () => {
+  if (!import.meta.client) {
+    return
+  }
+
+  const raw = localStorage.getItem(QUOTE_META_STORAGE_KEY)
+
+  if (!raw) {
+    selectedSeamstressId.value = null
+    selectedInstallerId.value = null
+    quoteStatus.value = 'rascunho'
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<QuoteDraftMeta>
+    selectedSeamstressId.value = typeof parsed.selectedSeamstressId === 'string' ? parsed.selectedSeamstressId : null
+    selectedInstallerId.value = typeof parsed.selectedInstallerId === 'string' ? parsed.selectedInstallerId : null
+    quoteStatus.value = parsed.quoteStatus === 'pronto' || parsed.quoteStatus === 'cancelado'
+      ? parsed.quoteStatus
+      : 'rascunho'
+  }
+  catch {
+    localStorage.removeItem(QUOTE_META_STORAGE_KEY)
+    selectedSeamstressId.value = null
+    selectedInstallerId.value = null
+    quoteStatus.value = 'rascunho'
+  }
+}
+
+const persistDraftMeta = () => {
+  if (!import.meta.client) {
+    return
+  }
+
+  const payload: QuoteDraftMeta = {
+    selectedSeamstressId: selectedSeamstressId.value,
+    selectedInstallerId: selectedInstallerId.value,
+    quoteStatus: quoteStatus.value,
+  }
+
+  localStorage.setItem(QUOTE_META_STORAGE_KEY, JSON.stringify(payload))
+}
+
+const clearDraftMeta = () => {
+  if (!import.meta.client) {
+    return
+  }
+
+  localStorage.removeItem(QUOTE_META_STORAGE_KEY)
 }
 
 const activeSeamstresses = computed(() => {
@@ -99,6 +173,14 @@ const activeSeamstresses = computed(() => {
 
   return seamstresses.value.filter((seamstress) =>
     seamstress.status === 'ativa' || seamstress.id === currentId,
+  )
+})
+
+const activeInstallers = computed(() => {
+  const currentId = selectedInstallerId.value
+
+  return installers.value.filter((installer) =>
+    installer.status === 'ativo' || installer.id === currentId,
   )
 })
 
@@ -169,11 +251,33 @@ const syncSelectedSeamstressSnapshot = () => {
   record.value.seamstress.whatsapp = seamstress.whatsapp
 }
 
+const syncSelectedInstallerSnapshot = () => {
+  if (!selectedInstallerId.value) {
+    record.value.installer.name = ''
+    record.value.installer.email = ''
+    record.value.installer.whatsapp = ''
+    return
+  }
+
+  const installer = installers.value.find((entry) => entry.id === selectedInstallerId.value) || null
+
+  if (!installer) {
+    return
+  }
+
+  record.value.installer.name = installer.name
+  record.value.installer.email = installer.email
+  record.value.installer.whatsapp = installer.whatsapp
+}
+
 const loadInventoryReferences = async () => {
   try {
     isLoadingInventory.value = true
-    const [seamstressResponse, fabricResponse] = await Promise.all([
+    const [seamstressResponse, installerResponse, fabricResponse] = await Promise.all([
       $fetch<{ seamstresses: SeamstressRecord[] }>('/api/admin/seamstresses?status=all', {
+        credentials: 'include',
+      }),
+      $fetch<{ installers: InstallerRecord[] }>('/api/admin/installers?status=all', {
         credentials: 'include',
       }),
       $fetch<{ fabrics: FabricRecord[] }>('/api/admin/fabrics?status=all', {
@@ -182,11 +286,13 @@ const loadInventoryReferences = async () => {
     ])
 
     seamstresses.value = seamstressResponse.seamstresses
+    installers.value = installerResponse.installers
     fabrics.value = fabricResponse.fabrics
     syncSelectedSeamstressSnapshot()
+    syncSelectedInstallerSnapshot()
   }
   catch (error) {
-    toast.error(getApiErrorMessage(error, 'Não foi possível carregar costureiras e tecidos.'))
+    toast.error(getApiErrorMessage(error, 'Não foi possível carregar costureiras, instaladores e tecidos.'))
   }
   finally {
     isLoadingInventory.value = false
@@ -214,6 +320,10 @@ const loadStockBalances = async () => {
 watch(selectedSeamstressId, async (value) => {
   syncSelectedSeamstressSnapshot()
   await loadStockBalances()
+})
+
+watch(selectedInstallerId, () => {
+  syncSelectedInstallerSnapshot()
 })
 
 watch(
@@ -244,10 +354,10 @@ const loadQuoteFromRoute = async () => {
     linkedPreQuoteCode.value = ''
     linkedCustomerName.value = ''
     linkedCustomerLocation.value = ''
-    selectedSeamstressId.value = null
-    quoteStatus.value = 'rascunho'
     stockBalances.value = []
+    installerDispatches.value = []
     lastSavedAt.value = ''
+    restoreDraftMeta()
     return
   }
 
@@ -257,6 +367,7 @@ const loadQuoteFromRoute = async () => {
       credentials: 'include',
     })
     applyLoadedQuote(payload)
+    clearDraftMeta()
   }
   catch (error) {
     toast.error(getApiErrorMessage(error, 'Não foi possível carregar o orçamento final.'))
@@ -266,9 +377,27 @@ const loadQuoteFromRoute = async () => {
   }
 }
 
+const loadInstallerDispatches = async () => {
+  if (!activeQuoteId.value) {
+    installerDispatches.value = []
+    return
+  }
+
+  try {
+    const response = await $fetch<{ dispatches: InstallerDispatchRecord[] }>(`/api/admin/installers/dispatches?quoteId=${activeQuoteId.value}`, {
+      credentials: 'include',
+    })
+    installerDispatches.value = response.dispatches
+  }
+  catch (error) {
+    toast.error(getApiErrorMessage(error, 'Não foi possível carregar o histórico do instalador.'))
+  }
+}
+
 const saveCurrentQuote = async () => {
   try {
     isSavingRecord.value = true
+    const previousCode = record.value.project.code
     const hasFabricConsumptions = record.value.items.some((item) =>
       (item.fabricConsumptions || []).some((consumption) => Boolean(consumption.fabricId) || Boolean(consumption.quantityMeters)),
     )
@@ -286,12 +415,14 @@ const saveCurrentQuote = async () => {
         customerId: linkedCustomerId.value,
         preQuoteId: linkedPreQuoteId.value,
         seamstressId: selectedSeamstressId.value,
+        installerId: selectedInstallerId.value,
         status: quoteStatus.value,
         record: record.value,
       },
     })
 
     applyLoadedQuote(response.finalQuote)
+    clearDraftMeta()
 
     if (typeof route.query.quoteId !== 'string' || route.query.quoteId !== response.finalQuote.id) {
       await navigateTo({
@@ -302,7 +433,11 @@ const saveCurrentQuote = async () => {
       }, { replace: true })
     }
 
-    toast.success('Orçamento salvo com sucesso.')
+    toast.success(
+      response.finalQuote.record.project.code !== previousCode
+        ? 'Orçamento salvo. O código foi ajustado automaticamente para evitar duplicidade.'
+        : 'Orçamento salvo com sucesso.',
+    )
   }
   catch (error) {
     toast.error(getApiErrorMessage(error, 'Não foi possível salvar o orçamento.'))
@@ -314,6 +449,7 @@ const saveCurrentQuote = async () => {
 
 const startEmptyQuote = async () => {
   resetRecord()
+  clearDraftMeta()
   activeQuoteId.value = null
   linkedCustomerId.value = null
   linkedPreQuoteId.value = null
@@ -321,15 +457,26 @@ const startEmptyQuote = async () => {
   linkedCustomerName.value = ''
   linkedCustomerLocation.value = ''
   selectedSeamstressId.value = null
+  selectedInstallerId.value = null
   quoteStatus.value = 'rascunho'
   stockBalances.value = []
+  installerDispatches.value = []
   lastSavedAt.value = ''
   await navigateTo('/gestao/orcamentos', { replace: true })
 }
 
 onMounted(() => {
+  if (typeof route.query.quoteId !== 'string') {
+    restoreDraftMeta()
+  }
   void refreshSession()
   void loadInventoryReferences()
+})
+
+watch([selectedSeamstressId, selectedInstallerId, quoteStatus], () => {
+  if (!activeQuoteId.value && typeof route.query.quoteId !== 'string') {
+    persistDraftMeta()
+  }
 })
 
 watch(isReady, (ready) => {
@@ -362,6 +509,117 @@ const summaryStats = computed(() => [
     value: lastSavedAt.value ? new Date(lastSavedAt.value).toLocaleString('pt-BR') : 'Não salvo',
   },
 ])
+
+const getDocumentBlockReason = (kind: 'cliente' | 'costureira' | 'instalador', channel: 'email' | 'whatsapp') => {
+  if (kind === 'cliente') {
+    if (!record.value.customer.name.trim()) {
+      return 'Preencha o nome do cliente antes de enviar o orçamento.'
+    }
+
+    if (channel === 'email' && !customerValidation.value.emailValid) {
+      return 'Informe um e-mail válido do cliente.'
+    }
+
+    if (channel === 'whatsapp' && !customerValidation.value.phoneValid) {
+      return 'Informe um WhatsApp válido do cliente.'
+    }
+
+    if (record.value.customer.zipcode && !customerValidation.value.zipcodeValid) {
+      return 'Corrija o CEP do cliente antes de enviar o orçamento.'
+    }
+
+    if (!record.value.items.some((item) => item.room.trim() && item.width && item.height && calculateLineItemTotal(item) > 0)) {
+      return 'Inclua ao menos um item com ambiente, medidas e valor antes do envio.'
+    }
+
+    if (channel === 'email' && !customerValidation.value.phoneValid) {
+      return 'O orçamento do cliente só é liberado quando o WhatsApp do cliente também estiver válido.'
+    }
+
+    if (channel === 'whatsapp' && !customerValidation.value.emailValid) {
+      return 'O orçamento do cliente só é liberado quando o e-mail do cliente também estiver válido.'
+    }
+
+    return ''
+  }
+
+  if (kind === 'costureira') {
+    if (!selectedSeamstressId.value) {
+      return 'Selecione a costureira responsável antes de enviar o pedido.'
+    }
+
+    if (channel === 'email' && !record.value.seamstress.email.trim()) {
+      return 'A costureira selecionada precisa ter um e-mail cadastrado.'
+    }
+
+    if (channel === 'whatsapp' && !record.value.seamstress.whatsapp.trim()) {
+      return 'A costureira selecionada precisa ter um WhatsApp cadastrado.'
+    }
+
+    return ''
+  }
+
+  if (!activeQuoteId.value) {
+    return 'Salve o orçamento antes de enviar a ficha do instalador.'
+  }
+
+  if (!selectedInstallerId.value) {
+    return 'Selecione o instalador responsável.'
+  }
+
+  if (!record.value.project.installationDate) {
+    return 'Defina a data de instalação ou entrega antes do envio.'
+  }
+
+  const installableItems = record.value.items.filter((item) => item.installationIncluded === 'SIM')
+
+  if (installableItems.length === 0) {
+    return 'Adicione ao menos um item com instalação para liberar a ficha do instalador.'
+  }
+
+  if (installableItems.some((item) => !item.width && !item.installationMeters)) {
+    return 'Preencha a largura ou os metros de instalação dos itens instaláveis.'
+  }
+
+  if (!record.value.customer.name.trim()) {
+    return 'Preencha o nome do cliente.'
+  }
+
+  if (!record.value.customer.phone.trim() && !record.value.customer.email.trim()) {
+    return 'Informe ao menos um contato do cliente para a ficha de instalação.'
+  }
+
+  if (channel === 'email' && !record.value.installer.email.trim()) {
+    return 'O instalador selecionado precisa ter um e-mail cadastrado.'
+  }
+
+  if (channel === 'whatsapp' && !record.value.installer.whatsapp.trim()) {
+    return 'O instalador selecionado precisa ter um WhatsApp cadastrado.'
+  }
+
+  return ''
+}
+
+const documentEntries = computed(() =>
+  documents.value.map((document) => ({
+    ...document,
+    ready: document.kind === 'instalador'
+      ? document.ready && Boolean(activeQuoteId.value && selectedInstallerId.value)
+      : document.ready,
+    emailDisabledReason: getDocumentBlockReason(document.kind, 'email'),
+    whatsappDisabledReason: getDocumentBlockReason(document.kind, 'whatsapp'),
+  })))
+
+const handleDocumentDelivery = async (kind: 'cliente' | 'costureira' | 'instalador', channel: 'email' | 'whatsapp') => {
+  const delivered = await deliverDocument(kind, channel, {
+    quoteId: activeQuoteId.value,
+    installerId: selectedInstallerId.value,
+  })
+
+  if (delivered && kind === 'instalador') {
+    await loadInstallerDispatches()
+  }
+}
 </script>
 
 <template>
@@ -547,6 +805,10 @@ const summaryStats = computed(() => [
               <input v-model="record.project.deliveryLeadTime" type="text" placeholder="20 dias">
             </label>
             <label class="field">
+              <span>Data de instalação / entrega</span>
+              <input v-model="record.project.installationDate" type="date">
+            </label>
+            <label class="field">
               <span>Instalação</span>
               <input v-model="record.project.installationTerms" type="text" placeholder="Inclusa no valor">
             </label>
@@ -701,17 +963,21 @@ const summaryStats = computed(() => [
 
           <div class="fields-grid fields-grid-3">
             <label class="field">
-              <span>Nome</span>
-              <input v-model="record.installer.name" type="text" placeholder="Nome do instalador">
+              <span>Instalador responsável</span>
+              <select v-model="selectedInstallerId">
+                <option :value="null">Selecione</option>
+                <option v-for="installer in activeInstallers" :key="installer.id" :value="installer.id">
+                  {{ installer.name }}
+                </option>
+              </select>
             </label>
             <label class="field">
               <span>E-mail</span>
-              <input v-model="record.installer.email" type="email" placeholder="instalacao@email.com">
+              <input v-model="record.installer.email" type="email" placeholder="instalacao@email.com" readonly>
             </label>
             <label class="field">
               <span>WhatsApp</span>
-              <input :value="record.installer.whatsapp" type="text" inputmode="tel" placeholder="(27) 99999-9999"
-                @input="updateStakeholderPhone('installer', ($event.target as HTMLInputElement).value)">
+              <input :value="record.installer.whatsapp" type="text" inputmode="tel" placeholder="(27) 99999-9999" readonly>
             </label>
           </div>
 
@@ -720,11 +986,46 @@ const summaryStats = computed(() => [
             <textarea v-model="record.installer.notes" rows="5" placeholder="Altura de trilho, acesso, andaime, elétrica, restrições de obra..." />
           </label>
 
+          <div class="relation-grid">
+            <div class="preview-block">
+              <span class="section-kicker">Resumo operacional</span>
+              <ul>
+                <li>Data de instalação / entrega: {{ record.project.installationDate || 'Pendente' }}</li>
+                <li>Itens instaláveis: {{ installationSummary.installableItemCount }}</li>
+                <li>Total de metros: {{ installationSummary.totalMeters.toFixed(2) }} m</li>
+              </ul>
+            </div>
+
+            <div class="preview-block">
+              <span class="section-kicker">Contato do cliente</span>
+              <ul>
+                <li>{{ record.customer.name || 'Cliente não informado' }}</li>
+                <li>{{ record.customer.phone || record.customer.email || 'Contato pendente' }}</li>
+                <li>
+                  {{ record.customer.address || 'Endereço pendente' }}
+                  <span v-if="record.customer.neighborhood"> • {{ record.customer.neighborhood }}</span>
+                  <span v-if="record.customer.city"> • {{ record.customer.city }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
           <div class="preview-block">
             <span class="section-kicker">Prévia</span>
             <ul>
               <li v-for="line in documents[2].summary.lines.slice(0, 8)" :key="line">{{ line }}</li>
             </ul>
+          </div>
+
+          <div class="preview-block">
+            <span class="section-kicker">Histórico de envio</span>
+            <ul v-if="installerDispatches.length">
+              <li v-for="dispatch in installerDispatches.slice(0, 6)" :key="dispatch.id">
+                {{ new Date(dispatch.createdAt).toLocaleString('pt-BR') }} • {{ dispatch.channel }} • {{ dispatch.status }}
+                <span v-if="dispatch.errorMessage"> • {{ dispatch.errorMessage }}</span>
+              </li>
+            </ul>
+            <p v-else>Nenhum envio da ficha do instalador foi registrado ainda.</p>
           </div>
         </section>
 
@@ -756,7 +1057,7 @@ const summaryStats = computed(() => [
           </div>
 
           <AdminDocumentCard
-            v-for="document in documents"
+            v-for="document in documentEntries"
             :key="document.kind"
             :title="document.title"
             :description="document.summary.lines[0] || 'Documento pronto para revisão.'"
@@ -764,11 +1065,13 @@ const summaryStats = computed(() => [
             :recipient-email="document.email"
             :recipient-whatsapp="document.whatsapp"
             :can-send="document.ready"
+            :email-disabled-reason="document.emailDisabledReason"
+            :whatsapp-disabled-reason="document.whatsappDisabledReason"
             :sending-email="sending[`${document.kind}-email`]"
             :sending-whats-app="sending[`${document.kind}-whatsapp`]"
             @download="downloadPdf(document.kind)"
-            @send-email="deliverDocument(document.kind, 'email')"
-            @send-whatsapp="deliverDocument(document.kind, 'whatsapp')"
+            @send-email="handleDocumentDelivery(document.kind, 'email')"
+            @send-whatsapp="handleDocumentDelivery(document.kind, 'whatsapp')"
           />
         </section>
       </div>

@@ -21,6 +21,11 @@ import {
   type FabricRecord,
   type FabricStatus,
   type FinalQuoteDetails,
+  type InstallerDispatchRecord,
+  type InstallerDispatchStatus,
+  type InstallerDispatchChannel,
+  type InstallerRecord,
+  type InstallerStatus,
   type PreQuoteListItem,
   type PreQuoteStatus,
   type QuoteFabricConsumptionRecord,
@@ -37,7 +42,7 @@ import {
   type StockMovementType,
   type StoredFinalQuote,
 } from '~~/app/lib/quoteWorkspace'
-import { normalizePhone, type AdminQuoteRecord } from '~~/app/lib/adminQuote'
+import { normalizePhone, resolveInstallationMeters, type AdminQuoteRecord } from '~~/app/lib/adminQuote'
 
 export interface WorkspaceDocumentPayload {
   bytes: Uint8Array
@@ -82,6 +87,7 @@ interface FinalQuoteRow {
   customer_id: string
   pre_quote_id: string | null
   seamstress_id: string | null
+  installer_id: string | null
   status: StoredFinalQuote['status']
   record_json: unknown
   created_at: string | Date
@@ -109,6 +115,31 @@ interface FabricRow {
   status: FabricStatus
   created_at: string | Date
   updated_at: string | Date
+}
+
+interface InstallerRow {
+  id: string
+  name: string
+  email: string
+  whatsapp: string
+  notes: string
+  status: InstallerStatus
+  created_at: string | Date
+  updated_at: string | Date
+}
+
+interface InstallerDispatchRow {
+  id: string
+  quote_id: string
+  installer_id: string
+  document_kind: 'instalador'
+  channel: InstallerDispatchChannel
+  recipient_email: string
+  recipient_whatsapp: string
+  status: InstallerDispatchStatus
+  error_message: string
+  sent_at: string | Date | null
+  created_at: string | Date
 }
 
 interface SeamstressFabricStockRow {
@@ -263,6 +294,38 @@ const normalizeFinalQuoteCode = (code: string) => {
   return normalized
 }
 
+const resolveAvailableFinalQuoteCodeWithClient = async (
+  client: PoolClient,
+  desiredCode: string,
+  currentQuoteId?: string | null,
+  autoRegenerate = false,
+) => {
+  let candidate = desiredCode
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const result = await client.query<{ id: string }>(
+      'SELECT id FROM quote_workspace_final_quotes WHERE code = $1 LIMIT 1',
+      [candidate],
+    )
+    const conflictingId = result.rows[0]?.id
+
+    if (!conflictingId || conflictingId === currentQuoteId) {
+      return candidate
+    }
+
+    if (!autoRegenerate) {
+      return candidate
+    }
+
+    candidate = createStoredFinalQuoteCode()
+  }
+
+  throw createError({
+    statusCode: 409,
+    statusMessage: 'Nao foi possível gerar um código exclusivo para o orçamento. Tente salvar novamente.',
+  })
+}
+
 const syncMaterialPricesFromFabricCatalog = (
   record: AdminQuoteRecord,
   fabrics: Map<string, FabricRecord>,
@@ -350,6 +413,7 @@ const mapFinalQuoteRow = (row: FinalQuoteRow): StoredFinalQuote => ({
   customerId: row.customer_id,
   preQuoteId: row.pre_quote_id,
   seamstressId: row.seamstress_id,
+  installerId: row.installer_id,
   status: row.status,
   record: parseJsonColumn<AdminQuoteRecord>(row.record_json),
   createdAt: toIso(row.created_at),
@@ -374,6 +438,17 @@ const mapFabricRow = (row: FabricRow): FabricRecord => ({
   colorOrCollection: row.color_or_collection,
   pricePerMeter: Number(row.price_per_meter) || 0,
   unit: row.unit,
+  status: row.status,
+  createdAt: toIso(row.created_at),
+  updatedAt: toIso(row.updated_at),
+})
+
+const mapInstallerRow = (row: InstallerRow): InstallerRecord => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  whatsapp: row.whatsapp,
+  notes: row.notes,
   status: row.status,
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
@@ -409,6 +484,20 @@ const mapQuoteFabricConsumptionRow = (row: QuoteFabricConsumptionRow): QuoteFabr
   quantityMeters: Number(row.quantity_meters),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
+})
+
+const mapInstallerDispatchRow = (row: InstallerDispatchRow): InstallerDispatchRecord => ({
+  id: row.id,
+  quoteId: row.quote_id,
+  installerId: row.installer_id,
+  documentKind: row.document_kind,
+  channel: row.channel,
+  recipientEmail: row.recipient_email,
+  recipientWhatsapp: row.recipient_whatsapp,
+  status: row.status,
+  errorMessage: row.error_message,
+  sentAt: row.sent_at ? toIso(row.sent_at) : null,
+  createdAt: toIso(row.created_at),
 })
 
 const mapStockBalanceRow = (row: StockBalanceRow): SeamstressStockBalanceView => ({
@@ -518,6 +607,7 @@ const ensureSchema = async () => {
           customer_id TEXT NOT NULL REFERENCES quote_workspace_customers (id),
           pre_quote_id TEXT NULL REFERENCES quote_workspace_pre_quotes (id),
           seamstress_id TEXT NULL,
+          installer_id TEXT NULL,
           status TEXT NOT NULL,
           record_json JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL,
@@ -526,6 +616,7 @@ const ensureSchema = async () => {
       `
 
       await sql`ALTER TABLE quote_workspace_final_quotes ADD COLUMN IF NOT EXISTS seamstress_id TEXT NULL`
+      await sql`ALTER TABLE quote_workspace_final_quotes ADD COLUMN IF NOT EXISTS installer_id TEXT NULL`
 
       await sql`
         CREATE TABLE IF NOT EXISTS quote_workspace_seamstresses (
@@ -551,6 +642,34 @@ const ensureSchema = async () => {
             ALTER TABLE quote_workspace_final_quotes
             ADD CONSTRAINT quote_workspace_final_quotes_seamstress_id_fkey
             FOREIGN KEY (seamstress_id) REFERENCES quote_workspace_seamstresses (id);
+          END IF;
+        END $$;
+      `
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_installers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL DEFAULT '',
+          whatsapp TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        )
+      `
+
+      await sql`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.table_constraints
+            WHERE constraint_name = 'quote_workspace_final_quotes_installer_id_fkey'
+          ) THEN
+            ALTER TABLE quote_workspace_final_quotes
+            ADD CONSTRAINT quote_workspace_final_quotes_installer_id_fkey
+            FOREIGN KEY (installer_id) REFERENCES quote_workspace_installers (id);
           END IF;
         END $$;
       `
@@ -611,13 +730,31 @@ const ensureSchema = async () => {
         )
       `
 
+      await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_installer_dispatches (
+          id TEXT PRIMARY KEY,
+          quote_id TEXT NOT NULL REFERENCES quote_workspace_final_quotes (id) ON DELETE CASCADE,
+          installer_id TEXT NOT NULL REFERENCES quote_workspace_installers (id),
+          document_kind TEXT NOT NULL,
+          channel TEXT NOT NULL,
+          recipient_email TEXT NOT NULL DEFAULT '',
+          recipient_whatsapp TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL,
+          error_message TEXT NOT NULL DEFAULT '',
+          sent_at TIMESTAMPTZ NULL,
+          created_at TIMESTAMPTZ NOT NULL
+        )
+      `
+
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_customers_updated_at_idx ON quote_workspace_customers (updated_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_pre_quotes_customer_idx ON quote_workspace_pre_quotes (customer_id, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_pre_quotes_status_idx ON quote_workspace_pre_quotes (status, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_customer_idx ON quote_workspace_final_quotes (customer_id, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_pre_quote_idx ON quote_workspace_final_quotes (pre_quote_id)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_seamstress_idx ON quote_workspace_final_quotes (seamstress_id, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_installer_idx ON quote_workspace_final_quotes (installer_id, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_seamstresses_status_idx ON quote_workspace_seamstresses (status, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_installers_status_idx ON quote_workspace_installers (status, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_fabrics_status_idx ON quote_workspace_fabrics (status, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_stock_balance_seamstress_idx ON quote_workspace_seamstress_fabric_stock (seamstress_id, updated_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_stock_balance_fabric_idx ON quote_workspace_seamstress_fabric_stock (fabric_id, updated_at DESC)`
@@ -628,6 +765,10 @@ const ensureSchema = async () => {
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_consumptions_quote_idx ON quote_workspace_quote_fabric_consumptions (quote_id, updated_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_consumptions_seamstress_idx ON quote_workspace_quote_fabric_consumptions (seamstress_id, updated_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_consumptions_fabric_idx ON quote_workspace_quote_fabric_consumptions (fabric_id, updated_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_installer_dispatches_status_idx ON quote_workspace_installer_dispatches (status, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_installer_dispatches_installer_idx ON quote_workspace_installer_dispatches (installer_id, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_installer_dispatches_quote_idx ON quote_workspace_installer_dispatches (quote_id, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_installer_dispatches_created_idx ON quote_workspace_installer_dispatches (created_at DESC)`
     })().catch((error) => {
       schemaPromise = null
       throw error
@@ -646,10 +787,12 @@ const serializeWrite = async <T>(task: () => Promise<T>) => {
 const readQuoteWorkspaceStore = async (): Promise<QuoteWorkspaceStore> => {
   await ensureSchema()
   const sql = getSql()
-  const [customerRows, preQuoteRows, finalQuoteRows] = await sql.transaction([
+  const [customerRows, preQuoteRows, finalQuoteRows, installerRows, installerDispatchRows] = await sql.transaction([
     sql`SELECT * FROM quote_workspace_customers ORDER BY created_at DESC`,
     sql`SELECT * FROM quote_workspace_pre_quotes ORDER BY created_at DESC`,
     sql`SELECT * FROM quote_workspace_final_quotes ORDER BY created_at DESC`,
+    sql`SELECT * FROM quote_workspace_installers ORDER BY name ASC`,
+    sql`SELECT * FROM quote_workspace_installer_dispatches ORDER BY created_at DESC`,
   ], {
     readOnly: true,
   })
@@ -658,6 +801,8 @@ const readQuoteWorkspaceStore = async (): Promise<QuoteWorkspaceStore> => {
     customers: (customerRows as CustomerRow[]).map(mapCustomerRow),
     preQuotes: (preQuoteRows as PreQuoteRow[]).map(mapPreQuoteRow),
     finalQuotes: (finalQuoteRows as FinalQuoteRow[]).map(mapFinalQuoteRow),
+    installers: (installerRows as InstallerRow[]).map(mapInstallerRow),
+    installerDispatches: (installerDispatchRows as InstallerDispatchRow[]).map(mapInstallerDispatchRow),
   }
 }
 
@@ -825,12 +970,13 @@ const upsertFinalQuoteRecordWithClient = async (client: PoolClient, finalQuote: 
         customer_id,
         pre_quote_id,
         seamstress_id,
+        installer_id,
         status,
         record_json,
         created_at,
         updated_at
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz
+        $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz, $10::timestamptz
       )
       ON CONFLICT (id) DO UPDATE
       SET
@@ -838,6 +984,7 @@ const upsertFinalQuoteRecordWithClient = async (client: PoolClient, finalQuote: 
         customer_id = EXCLUDED.customer_id,
         pre_quote_id = EXCLUDED.pre_quote_id,
         seamstress_id = EXCLUDED.seamstress_id,
+        installer_id = EXCLUDED.installer_id,
         status = EXCLUDED.status,
         record_json = EXCLUDED.record_json,
         updated_at = EXCLUDED.updated_at
@@ -849,6 +996,7 @@ const upsertFinalQuoteRecordWithClient = async (client: PoolClient, finalQuote: 
       finalQuote.customerId,
       finalQuote.preQuoteId,
       finalQuote.seamstressId,
+      finalQuote.installerId,
       finalQuote.status,
       JSON.stringify(finalQuote.record),
       finalQuote.createdAt,
@@ -902,6 +1050,14 @@ const getSeamstressForUpdate = async (client: PoolClient, seamstressId: string) 
     [seamstressId],
   )
   return result.rows[0] ? mapSeamstressRow(result.rows[0]) : null
+}
+
+const getInstallerForUpdate = async (client: PoolClient, installerId: string) => {
+  const result = await client.query<InstallerRow>(
+    'SELECT * FROM quote_workspace_installers WHERE id = $1 FOR UPDATE',
+    [installerId],
+  )
+  return result.rows[0] ? mapInstallerRow(result.rows[0]) : null
 }
 
 const getFabricsForUpdate = async (client: PoolClient, fabricIds: string[]) => {
@@ -1189,6 +1345,7 @@ const upsertFinalQuoteRecord = async (finalQuote: StoredFinalQuote): Promise<Sto
       customer_id,
       pre_quote_id,
       seamstress_id,
+      installer_id,
       status,
       record_json,
       created_at,
@@ -1199,6 +1356,7 @@ const upsertFinalQuoteRecord = async (finalQuote: StoredFinalQuote): Promise<Sto
       ${finalQuote.customerId},
       ${finalQuote.preQuoteId},
       ${finalQuote.seamstressId},
+      ${finalQuote.installerId},
       ${finalQuote.status},
       ${JSON.stringify(finalQuote.record)}::jsonb,
       ${finalQuote.createdAt}::timestamptz,
@@ -1210,6 +1368,7 @@ const upsertFinalQuoteRecord = async (finalQuote: StoredFinalQuote): Promise<Sto
       customer_id = EXCLUDED.customer_id,
       pre_quote_id = EXCLUDED.pre_quote_id,
       seamstress_id = EXCLUDED.seamstress_id,
+      installer_id = EXCLUDED.installer_id,
       status = EXCLUDED.status,
       record_json = EXCLUDED.record_json,
       updated_at = EXCLUDED.updated_at
@@ -1343,7 +1502,7 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
   }
 
   const finalQuote = mapFinalQuoteRow(finalQuoteRow as FinalQuoteRow)
-  const [customerRows, preQuoteRows, seamstressRows, consumptionRows] = await sql.transaction([
+  const [customerRows, preQuoteRows, seamstressRows, installerRows, consumptionRows, dispatchRows] = await sql.transaction([
     sql`SELECT * FROM quote_workspace_customers WHERE id = ${finalQuote.customerId} LIMIT 1`,
     finalQuote.preQuoteId
       ? sql`SELECT * FROM quote_workspace_pre_quotes WHERE id = ${finalQuote.preQuoteId} LIMIT 1`
@@ -1351,7 +1510,11 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
     finalQuote.seamstressId
       ? sql`SELECT * FROM quote_workspace_seamstresses WHERE id = ${finalQuote.seamstressId} LIMIT 1`
       : sql`SELECT * FROM quote_workspace_seamstresses WHERE FALSE`,
+    finalQuote.installerId
+      ? sql`SELECT * FROM quote_workspace_installers WHERE id = ${finalQuote.installerId} LIMIT 1`
+      : sql`SELECT * FROM quote_workspace_installers WHERE FALSE`,
     sql`SELECT * FROM quote_workspace_quote_fabric_consumptions WHERE quote_id = ${finalQuote.id} ORDER BY created_at ASC`,
+    sql`SELECT * FROM quote_workspace_installer_dispatches WHERE quote_id = ${finalQuote.id} ORDER BY created_at DESC`,
   ], {
     readOnly: true,
   })
@@ -1363,7 +1526,9 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
     customer: customerRows[0] ? mapCustomerRow(customerRows[0] as CustomerRow) : null,
     preQuote: preQuoteRows[0] ? mapPreQuoteRow(preQuoteRows[0] as PreQuoteRow) : null,
     seamstress: seamstressRows[0] ? mapSeamstressRow(seamstressRows[0] as SeamstressRow) : null,
+    installer: installerRows[0] ? mapInstallerRow(installerRows[0] as InstallerRow) : null,
     fabricConsumptions,
+    installerDispatches: (dispatchRows as InstallerDispatchRow[]).map(mapInstallerDispatchRow),
   }
 }
 
@@ -1410,6 +1575,7 @@ export const saveFinalQuoteRecord = async (input: {
   customerId?: string | null
   preQuoteId?: string | null
   seamstressId?: string | null
+  installerId?: string | null
   status?: StoredFinalQuote['status']
   record: AdminQuoteRecord
 }): Promise<StoredFinalQuote> => serializeWrite(async () =>
@@ -1448,6 +1614,7 @@ export const saveFinalQuoteRecord = async (input: {
     const persistedCustomer = await getCustomerForQuoteWithClient(client, input.record, input.customerId)
     const existing = input.id ? await fetchFinalQuoteWithClient(client, input.id) : null
     const selectedSeamstress = input.seamstressId ? await getSeamstressForUpdate(client, input.seamstressId) : null
+    const selectedInstaller = input.installerId ? await getInstallerForUpdate(client, input.installerId) : null
 
     if (input.seamstressId && !selectedSeamstress) {
       throw createError({
@@ -1456,7 +1623,61 @@ export const saveFinalQuoteRecord = async (input: {
       })
     }
 
+    if (input.installerId && !selectedInstaller) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Instalador selecionado não encontrado.',
+      })
+    }
+
+    if (selectedSeamstress) {
+      input.record.seamstress.name = selectedSeamstress.name
+      input.record.seamstress.email = selectedSeamstress.email
+      input.record.seamstress.whatsapp = selectedSeamstress.whatsapp
+    }
+
+    if (selectedInstaller) {
+      input.record.installer.name = selectedInstaller.name
+      input.record.installer.email = selectedInstaller.email
+      input.record.installer.whatsapp = selectedInstaller.whatsapp
+    }
+
     const persistedStatus = input.status ?? existing?.status ?? 'rascunho'
+    input.record.project.code = await resolveAvailableFinalQuoteCodeWithClient(
+      client,
+      input.record.project.code,
+      existing?.id,
+      persistedStatus === 'rascunho',
+    )
+    const installableItems = input.record.items.filter((item) => item.installationIncluded === 'SIM')
+
+    if (persistedStatus !== 'rascunho' && installableItems.length > 0) {
+      if (!input.installerId) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Selecione o instalador antes de marcar o orçamento como pronto.',
+        })
+      }
+
+      if (!input.record.project.installationDate) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Defina a data de instalação ou entrega para os itens instaláveis.',
+        })
+      }
+
+      for (const item of installableItems) {
+        const installationMeters = resolveInstallationMeters(item)
+
+        if (!installationMeters || installationMeters <= 0) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: 'Todo item com instalação precisa ter metragem válida ou largura maior que zero.',
+          })
+        }
+      }
+    }
+
     const desiredConsumptions = persistedStatus === 'cancelado'
       ? []
       : collectRequestedQuoteFabricConsumptions(input.record, input.seamstressId)
@@ -1608,6 +1829,7 @@ export const saveFinalQuoteRecord = async (input: {
             customerId: persistedCustomer.id,
             preQuoteId: input.preQuoteId ?? existing.preQuoteId,
             seamstressId: input.seamstressId ?? existing.seamstressId ?? null,
+            installerId: input.installerId ?? existing.installerId ?? null,
             code: input.record.project.code,
             status: persistedStatus,
             record: input.record,
@@ -1620,6 +1842,7 @@ export const saveFinalQuoteRecord = async (input: {
                 customerId: persistedCustomer.id,
                 preQuoteId: input.preQuoteId ?? null,
                 seamstressId: input.seamstressId ?? null,
+                installerId: input.installerId ?? null,
                 record: input.record,
               }),
               status: persistedStatus,
@@ -1745,6 +1968,188 @@ export const saveSeamstressRecord = async (input: {
 
   return mapSeamstressRow(row as SeamstressRow)
 }
+
+export const listInstallers = async (status?: InstallerStatus | 'all'): Promise<InstallerRecord[]> => {
+  await ensureSchema()
+  const sql = getSql()
+  const rows = status && status !== 'all'
+    ? await sql`
+        SELECT *
+        FROM quote_workspace_installers
+        WHERE status = ${status}
+        ORDER BY name ASC
+      `
+    : await sql`
+        SELECT *
+        FROM quote_workspace_installers
+        ORDER BY name ASC
+      `
+
+  return (rows as InstallerRow[]).map(mapInstallerRow)
+}
+
+export const findInstallerById = async (id: string): Promise<InstallerRecord | null> => {
+  await ensureSchema()
+  const sql = getSql()
+  const [row] = await sql`
+    SELECT *
+    FROM quote_workspace_installers
+    WHERE id = ${id}
+    LIMIT 1
+  `
+
+  return row ? mapInstallerRow(row as InstallerRow) : null
+}
+
+export const saveInstaller = async (input: {
+  id?: string | null
+  name: string
+  email?: string
+  whatsapp?: string
+  notes?: string
+  status: InstallerStatus
+}): Promise<InstallerRecord> => {
+  await ensureSchema()
+  const sql = getSql()
+  const now = new Date().toISOString()
+  const [row] = await sql`
+    INSERT INTO quote_workspace_installers (
+      id,
+      name,
+      email,
+      whatsapp,
+      notes,
+      status,
+      created_at,
+      updated_at
+    ) VALUES (
+      ${input.id || createWorkspaceId('ins')},
+      ${input.name.trim()},
+      ${input.email?.trim() || ''},
+      ${input.whatsapp?.trim() || ''},
+      ${input.notes?.trim() || ''},
+      ${input.status},
+      ${now}::timestamptz,
+      ${now}::timestamptz
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET
+      name = EXCLUDED.name,
+      email = EXCLUDED.email,
+      whatsapp = EXCLUDED.whatsapp,
+      notes = EXCLUDED.notes,
+      status = EXCLUDED.status,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *
+  `
+
+  return mapInstallerRow(row as InstallerRow)
+}
+
+export const listInstallerDispatches = async (filters?: {
+  installerId?: string
+  quoteId?: string
+  channel?: InstallerDispatchChannel
+  dateFrom?: string
+  dateTo?: string
+}): Promise<InstallerDispatchRecord[]> =>
+  withClient(async (client) => {
+    const conditions: string[] = []
+    const values: unknown[] = []
+
+    if (filters?.installerId) {
+      values.push(filters.installerId)
+      conditions.push(`installer_id = $${values.length}`)
+    }
+
+    if (filters?.quoteId) {
+      values.push(filters.quoteId)
+      conditions.push(`quote_id = $${values.length}`)
+    }
+
+    if (filters?.channel) {
+      values.push(filters.channel)
+      conditions.push(`channel = $${values.length}`)
+    }
+
+    if (filters?.dateFrom) {
+      values.push(`${filters.dateFrom}T00:00:00.000Z`)
+      conditions.push(`created_at >= $${values.length}::timestamptz`)
+    }
+
+    if (filters?.dateTo) {
+      values.push(`${filters.dateTo}T23:59:59.999Z`)
+      conditions.push(`created_at <= $${values.length}::timestamptz`)
+    }
+
+    const query = `
+      SELECT *
+      FROM quote_workspace_installer_dispatches
+      ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+      ORDER BY created_at DESC
+    `
+
+    const result = await client.query<InstallerDispatchRow>(query, values)
+    return result.rows.map(mapInstallerDispatchRow)
+  })
+
+export const createInstallerDispatch = async (input: Omit<InstallerDispatchRecord, 'id' | 'createdAt'>): Promise<InstallerDispatchRecord> =>
+  withTransaction(async (client) => {
+    const installer = await getInstallerForUpdate(client, input.installerId)
+
+    if (!installer) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Instalador selecionado não encontrado.',
+      })
+    }
+
+    const quote = await fetchFinalQuoteWithClient(client, input.quoteId)
+
+    if (!quote) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Orçamento vinculado ao envio não foi encontrado.',
+      })
+    }
+
+    const now = new Date().toISOString()
+    const result = await client.query<InstallerDispatchRow>(
+      `
+        INSERT INTO quote_workspace_installer_dispatches (
+          id,
+          quote_id,
+          installer_id,
+          document_kind,
+          channel,
+          recipient_email,
+          recipient_whatsapp,
+          status,
+          error_message,
+          sent_at,
+          created_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz
+        )
+        RETURNING *
+      `,
+      [
+        createWorkspaceId('ind'),
+        input.quoteId,
+        input.installerId,
+        input.documentKind,
+        input.channel,
+        input.recipientEmail,
+        input.recipientWhatsapp,
+        input.status,
+        input.errorMessage,
+        input.sentAt,
+        now,
+      ],
+    )
+
+    return mapInstallerDispatchRow(result.rows[0])
+  })
 
 export const listFabrics = async (status?: FabricStatus | 'all'): Promise<FabricRecord[]> => {
   await ensureSchema()

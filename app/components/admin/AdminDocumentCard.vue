@@ -6,6 +6,8 @@ const props = defineProps<{
   recipientEmail?: string
   recipientWhatsapp?: string
   canSend: boolean
+  emailDisabledReason?: string
+  whatsappDisabledReason?: string
   sendingEmail?: boolean
   sendingWhatsApp?: boolean
 }>()
@@ -18,6 +20,10 @@ defineEmits<{
 
 const hasEmail = computed(() => Boolean(props.recipientEmail))
 const hasWhatsApp = computed(() => Boolean(props.recipientWhatsapp))
+const emailBlockReason = computed(() => props.emailDisabledReason || (!props.canSend ? 'Este documento ainda não pode ser enviado.' : ''))
+const whatsappBlockReason = computed(() => props.whatsappDisabledReason || (!props.canSend ? 'Este documento ainda não pode ser enviado.' : ''))
+const emailDisabled = computed(() => Boolean(emailBlockReason.value) || props.sendingEmail)
+const whatsappDisabled = computed(() => Boolean(whatsappBlockReason.value) || props.sendingWhatsApp)
 </script>
 
 <template>
@@ -41,14 +47,24 @@ const hasWhatsApp = computed(() => Boolean(props.recipientWhatsapp))
     </div>
 
     <div class="actions-row">
-      <button type="button" class="action-button" :disabled="!canSend || !hasEmail || sendingEmail"
-        @click="$emit('send-email')">
-        {{ sendingEmail ? 'Enviando...' : 'Enviar por e-mail' }}
-      </button>
-      <button type="button" class="action-button action-button-secondary"
-        :disabled="!canSend || !hasWhatsApp || sendingWhatsApp" @click="$emit('send-whatsapp')">
-        {{ sendingWhatsApp ? 'Enviando...' : 'Enviar por WhatsApp' }}
-      </button>
+      <div class="action-shell" :class="{ 'action-shell-disabled': Boolean(emailBlockReason) }"
+        :tabindex="emailBlockReason ? 0 : -1">
+        <button type="button" class="action-button" :disabled="emailDisabled" @click="$emit('send-email')">
+          {{ sendingEmail ? 'Enviando...' : 'Enviar por e-mail' }}
+        </button>
+        <span v-if="emailBlockReason" class="action-tooltip">{{ emailBlockReason }}</span>
+        <span v-if="emailBlockReason" class="action-reason-mobile">{{ emailBlockReason }}</span>
+      </div>
+
+      <div class="action-shell" :class="{ 'action-shell-disabled': Boolean(whatsappBlockReason) }"
+        :tabindex="whatsappBlockReason ? 0 : -1">
+        <button type="button" class="action-button action-button-secondary" :disabled="whatsappDisabled"
+          @click="$emit('send-whatsapp')">
+          {{ sendingWhatsApp ? 'Enviando...' : 'Enviar por WhatsApp' }}
+        </button>
+        <span v-if="whatsappBlockReason" class="action-tooltip">{{ whatsappBlockReason }}</span>
+        <span v-if="whatsappBlockReason" class="action-reason-mobile">{{ whatsappBlockReason }}</span>
+      </div>
     </div>
   </article>
 </template>
@@ -130,6 +146,56 @@ const hasWhatsApp = computed(() => Boolean(props.recipientWhatsapp))
   gap: 12px;
 }
 
+.action-shell {
+  position: relative;
+  display: grid;
+  gap: 8px;
+}
+
+.action-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 3;
+  width: min(260px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(22, 22, 22, 0.96);
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  box-shadow: 0 14px 28px rgba(22, 22, 22, 0.18);
+  transform: translateX(-50%) translateY(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.action-tooltip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 10px;
+  height: 10px;
+  background: rgba(22, 22, 22, 0.96);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.action-shell-disabled:hover .action-tooltip,
+.action-shell-disabled:focus .action-tooltip,
+.action-shell-disabled:focus-within .action-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.action-reason-mobile {
+  display: none;
+  color: rgba(120, 84, 28, 0.92);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
 @media (max-width: 720px) {
   .document-card {
     padding: 18px;
@@ -142,12 +208,21 @@ const hasWhatsApp = computed(() => Boolean(props.recipientWhatsapp))
 
   .download-button,
   .action-button,
-  .actions-row {
+  .actions-row,
+  .action-shell {
     width: 100%;
   }
 
   .actions-row {
     flex-direction: column;
+  }
+
+  .action-tooltip {
+    display: none;
+  }
+
+  .action-reason-mobile {
+    display: block;
   }
 }
 </style>

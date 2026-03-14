@@ -2,7 +2,9 @@ import {
   createEmptyLineItem,
   createEmptyQuoteRecord,
   formatBlackoutLabel,
+  formatArea,
   normalizePhone,
+  resolveInstallationMeters,
   type AdminQuoteRecord,
   type BlackoutOption,
   type FabricOption,
@@ -15,7 +17,10 @@ export type PreQuoteOrigin = 'site'
 export type PreQuoteStatus = 'novo' | 'em_analise' | 'convertido'
 export type FinalQuoteStatus = 'rascunho' | 'pronto' | 'cancelado'
 export type SeamstressStatus = 'ativa' | 'inativa'
+export type InstallerStatus = 'ativo' | 'inativo'
 export type FabricStatus = 'ativo' | 'inativo'
+export type InstallerDispatchChannel = 'email' | 'whatsapp'
+export type InstallerDispatchStatus = 'pendente' | 'enviado' | 'erro'
 export type StockMovementType =
   | 'entrada_manual'
   | 'ajuste_manual_entrada'
@@ -90,6 +95,7 @@ export interface StoredFinalQuote {
   customerId: string
   preQuoteId: string | null
   seamstressId: string | null
+  installerId: string | null
   status: FinalQuoteStatus
   record: AdminQuoteRecord
   createdAt: string
@@ -103,6 +109,17 @@ export interface SeamstressRecord {
   whatsapp: string
   notes: string
   status: SeamstressStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InstallerRecord {
+  id: string
+  name: string
+  email: string
+  whatsapp: string
+  notes: string
+  status: InstallerStatus
   createdAt: string
   updatedAt: string
 }
@@ -162,10 +179,26 @@ export interface StockMovementListItem extends StockMovementRecord {
   quoteCode: string | null
 }
 
+export interface InstallerDispatchRecord {
+  id: string
+  quoteId: string
+  installerId: string
+  documentKind: 'instalador'
+  channel: InstallerDispatchChannel
+  recipientEmail: string
+  recipientWhatsapp: string
+  status: InstallerDispatchStatus
+  errorMessage: string
+  sentAt: string | null
+  createdAt: string
+}
+
 export interface QuoteWorkspaceStore {
   customers: CustomerRecord[]
   preQuotes: PreQuoteRecord[]
   finalQuotes: StoredFinalQuote[]
+  installers: InstallerRecord[]
+  installerDispatches: InstallerDispatchRecord[]
 }
 
 export interface CustomerSummary extends CustomerRecord {
@@ -188,7 +221,29 @@ export interface FinalQuoteDetails extends StoredFinalQuote {
   customer: CustomerRecord | null
   preQuote: PreQuoteRecord | null
   seamstress: SeamstressRecord | null
+  installer: InstallerRecord | null
   fabricConsumptions: QuoteFabricConsumptionRecord[]
+  installerDispatches: InstallerDispatchRecord[]
+}
+
+export interface InstallerInstallationSummary {
+  customerName: string
+  customerPhone: string
+  customerEmail: string
+  addressLine: string
+  installationDate: string
+  totalMeters: number
+  installableItemCount: number
+  items: Array<{
+    id: string
+    room: string
+    openingLabel: string
+    category: string
+    installationMeters: number
+    quantity: number
+    dimensionsLabel: string
+    notes: string
+  }>
 }
 
 const nowIso = () => new Date().toISOString()
@@ -200,6 +255,8 @@ export const createWorkspaceStore = (): QuoteWorkspaceStore => ({
   customers: [],
   preQuotes: [],
   finalQuotes: [],
+  installers: [],
+  installerDispatches: [],
 })
 
 const buildYearScopedCode = (prefix: string) => {
@@ -487,6 +544,7 @@ export const createFinalQuoteRecord = (input: {
   customerId: string
   preQuoteId: string | null
   seamstressId?: string | null
+  installerId?: string | null
   record: AdminQuoteRecord
 }) => {
   const now = nowIso()
@@ -496,10 +554,51 @@ export const createFinalQuoteRecord = (input: {
     customerId: input.customerId,
     preQuoteId: input.preQuoteId,
     seamstressId: input.seamstressId ?? null,
+    installerId: input.installerId ?? null,
     status: 'rascunho' as const,
     record: input.record,
     createdAt: now,
     updatedAt: now,
+  }
+}
+
+export const getInstallableQuoteItems = (record: AdminQuoteRecord) =>
+  record.items.filter((item) => item.installationIncluded === 'SIM')
+
+export const calculateInstallationMetersTotal = (record: AdminQuoteRecord) =>
+  Math.round(
+    getInstallableQuoteItems(record)
+      .reduce((total, item) => total + resolveInstallationMeters(item), 0) * 1000,
+  ) / 1000
+
+export const buildInstallerInstallationSummary = (record: AdminQuoteRecord): InstallerInstallationSummary => {
+  const items = getInstallableQuoteItems(record)
+  const addressLine = [
+    record.customer.address || 'Endereco pendente',
+    record.customer.complement,
+    record.customer.neighborhood,
+    record.customer.city ? `${record.customer.city}${record.customer.state ? `/${record.customer.state}` : ''}` : '',
+    record.customer.zipcode ? `CEP ${record.customer.zipcode}` : '',
+  ].filter(Boolean).join(' | ')
+
+  return {
+    customerName: record.customer.name || 'Nao informado',
+    customerPhone: record.customer.phone || '',
+    customerEmail: record.customer.email || '',
+    addressLine,
+    installationDate: record.project.installationDate || '',
+    totalMeters: calculateInstallationMetersTotal(record),
+    installableItemCount: items.length,
+    items: items.map((item) => ({
+      id: item.id,
+      room: item.room || 'Ambiente',
+      openingLabel: item.openingLabel || 'Vao',
+      category: item.category,
+      installationMeters: resolveInstallationMeters(item),
+      quantity: item.quantity,
+      dimensionsLabel: formatArea(item.width, item.height),
+      notes: item.notes || '',
+    })),
   }
 }
 
