@@ -84,9 +84,11 @@ const buildWhatsAppDocumentMessage = (
   if (kind === 'costureira') {
     return [
       'Oi! Tudo bem?',
-      `Aqui está a ficha de costura,`,
-      "cliente: " + input.customerName,
-      "",
+      `Separei a ficha de costura do projeto ${input.projectCode}.`,
+      `Cliente: ${input.customerName || 'não informado'}.`,
+      '',
+      `Você pode baixar o PDF por este link: ${input.pdfUrl}`,
+      '',
       'Se surgir qualquer dúvida sobre tecido, medidas ou acabamento, só me chamar.',
     ].join('\n')
   }
