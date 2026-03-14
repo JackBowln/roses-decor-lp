@@ -8,6 +8,7 @@ interface SaveFabricPayload {
   name?: string
   category?: string
   colorOrCollection?: string
+  pricePerMeter?: number | string | null
   status?: FabricStatus
 }
 
@@ -22,12 +23,22 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const parsedPricePerMeter = Number(body.pricePerMeter ?? 0)
+
+  if (!Number.isFinite(parsedPricePerMeter) || parsedPricePerMeter < 0) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Informe um valor por metro valido para o tecido.',
+    })
+  }
+
   return {
     fabric: await saveFabricRecord({
       id: body.id,
       name: body.name,
       category: body.category,
       colorOrCollection: body.colorOrCollection,
+      pricePerMeter: parsedPricePerMeter,
       status: body.status || 'ativo',
     }),
   }

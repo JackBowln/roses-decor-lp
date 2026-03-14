@@ -5,7 +5,7 @@ import AdminQuoteItemCard from '@/components/admin/AdminQuoteItemCard.vue'
 import AdminTabs from '@/components/admin/AdminTabs.vue'
 import { getApiErrorMessage } from '@/lib/apiError'
 import { formatCurrency, quoteWorkbookTabs } from '@/lib/adminQuote'
-import type { FabricRecord, SeamstressRecord, SeamstressStockBalanceView, StoredFinalQuote } from '@/lib/quoteWorkspace'
+import { normalizeMeters, type FabricRecord, type SeamstressRecord, type SeamstressStockBalanceView, type StoredFinalQuote } from '@/lib/quoteWorkspace'
 
 definePageMeta({
   layout: 'admin',
@@ -120,6 +120,36 @@ const stockByFabricId = computed<Record<string, number>>(() =>
     return accumulator
   }, {}))
 
+const fabricPriceById = computed<Record<string, number>>(() =>
+  fabrics.value.reduce<Record<string, number>>((accumulator, fabric) => {
+    accumulator[fabric.id] = fabric.pricePerMeter
+    return accumulator
+  }, {}))
+
+const syncAutomaticMaterialPricing = () => {
+  record.value.items.forEach((item) => {
+    const quantity = Math.max(item.quantity || 1, 1)
+    let materialTotal = 0
+    let hasPricedConsumptions = false
+
+    for (const consumption of item.fabricConsumptions || []) {
+      const quantityMeters = normalizeMeters(consumption.quantityMeters)
+      const pricePerMeter = consumption.fabricId ? fabricPriceById.value[consumption.fabricId] : undefined
+
+      if (typeof pricePerMeter !== 'number' || pricePerMeter <= 0 || !quantityMeters || quantityMeters <= 0) {
+        continue
+      }
+
+      hasPricedConsumptions = true
+      materialTotal += quantityMeters * pricePerMeter
+    }
+
+    if (hasPricedConsumptions) {
+      item.unitPrice = Math.round((materialTotal / quantity) * 100) / 100
+    }
+  })
+}
+
 const syncSelectedSeamstressSnapshot = () => {
   if (!selectedSeamstressId.value) {
     record.value.seamstress.name = ''
@@ -185,6 +215,24 @@ watch(selectedSeamstressId, async (value) => {
   syncSelectedSeamstressSnapshot()
   await loadStockBalances()
 })
+
+watch(
+  () => JSON.stringify({
+    fabrics: fabrics.value.map((fabric) => [fabric.id, fabric.pricePerMeter]),
+    items: record.value.items.map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      fabricConsumptions: (item.fabricConsumptions || []).map((consumption) => ({
+        fabricId: consumption.fabricId,
+        quantityMeters: consumption.quantityMeters,
+      })),
+    })),
+  }),
+  () => {
+    syncAutomaticMaterialPricing()
+  },
+  { immediate: true },
+)
 
 const loadQuoteFromRoute = async () => {
   const quoteId = typeof route.query.quoteId === 'string' ? route.query.quoteId : ''
@@ -560,6 +608,7 @@ const summaryStats = computed(() => [
             :index="index"
             :disable-remove="record.items.length === 1"
             :fabrics="activeFabrics"
+            :fabric-price-by-id="fabricPriceById"
             :stock-by-fabric-id="stockByFabricId"
             :seamstress-selected="Boolean(selectedSeamstressId)"
             @duplicate="duplicateItem(item)"

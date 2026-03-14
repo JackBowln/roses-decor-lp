@@ -18,6 +18,7 @@ const props = defineProps<{
   index: number
   disableRemove: boolean
   fabrics: FabricRecord[]
+  fabricPriceById: Record<string, number>
   stockByFabricId: Record<string, number>
   seamstressSelected: boolean
 }>()
@@ -47,6 +48,16 @@ const parseNullableMeters = (value: string) => {
 
 const item = toRef(props, 'item')
 
+const hasAutomaticMaterialPrice = computed(() =>
+  (item.value.fabricConsumptions || []).some((consumption) => {
+    const quantityMeters = typeof consumption.quantityMeters === 'number' ? consumption.quantityMeters : null
+    return Boolean(consumption.fabricId)
+      && typeof props.fabricPriceById[consumption.fabricId] === 'number'
+      && props.fabricPriceById[consumption.fabricId] > 0
+      && quantityMeters !== null
+      && quantityMeters > 0
+  }))
+
 const addConsumption = () => {
   item.value.fabricConsumptions = [...(item.value.fabricConsumptions || []), createEmptyItemFabricConsumption()]
 }
@@ -61,12 +72,21 @@ const getStockHint = (fabricId: string) => {
   }
 
   const balance = props.stockByFabricId[fabricId]
+  const pricePerMeter = props.fabricPriceById[fabricId]
+  const details = []
 
-  if (typeof balance !== 'number') {
-    return 'Sem saldo cadastrado para esta costureira.'
+  if (typeof balance === 'number') {
+    details.push(`Saldo atual: ${balance.toFixed(2)} m`)
+  }
+  else {
+    details.push('Sem saldo cadastrado para esta costureira.')
   }
 
-  return `Saldo atual: ${balance.toFixed(2)} m`
+  if (typeof pricePerMeter === 'number') {
+    details.push(`R$ ${pricePerMeter.toFixed(2)}/m`)
+  }
+
+  return details.join(' • ')
 }
 </script>
 
@@ -212,9 +232,13 @@ const getStockHint = (fabricId: string) => {
 
     <div class="fields-grid fields-grid-3">
       <label class="field">
-        <span>Preço do produto (R$)</span>
+        <span>Preço do material (R$)</span>
         <input :value="item.unitPrice ?? ''" type="number" min="0" step="0.01" placeholder="0,00"
+          :readonly="hasAutomaticMaterialPrice"
           @input="item.unitPrice = parseNullableNumber(($event.target as HTMLInputElement).value)">
+        <small class="field-hint">
+          {{ hasAutomaticMaterialPrice ? 'Calculado automaticamente pelos tecidos consumidos.' : 'Pode ser preenchido manualmente quando nao houver tecido precificado.' }}
+        </small>
       </label>
 
       <label class="field">
@@ -259,7 +283,7 @@ const getStockHint = (fabricId: string) => {
             <select v-model="consumption.fabricId">
               <option value="">Selecione</option>
               <option v-for="fabric in fabrics" :key="fabric.id" :value="fabric.id">
-                {{ [fabric.name, fabric.colorOrCollection].filter(Boolean).join(' • ') }}
+                {{ [fabric.name, fabric.colorOrCollection, `R$ ${fabric.pricePerMeter.toFixed(2)}/m`].filter(Boolean).join(' • ') }}
               </option>
             </select>
           </label>
@@ -383,6 +407,11 @@ const getStockHint = (fabricId: string) => {
   outline: none;
   border-color: rgba(197, 160, 89, 0.62);
   box-shadow: 0 0 0 4px rgba(197, 160, 89, 0.12);
+}
+
+.field input[readonly] {
+  background: rgba(247, 239, 226, 0.72);
+  cursor: default;
 }
 
 .consumption-shell {

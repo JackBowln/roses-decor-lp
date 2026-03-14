@@ -112,6 +112,7 @@ export interface FabricRecord {
   name: string
   category: string
   colorOrCollection: string
+  pricePerMeter: number
   unit: 'metro'
   status: FabricStatus
   createdAt: string

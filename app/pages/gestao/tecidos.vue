@@ -17,6 +17,7 @@ const form = reactive({
   name: '',
   category: '',
   colorOrCollection: '',
+  pricePerMeter: null as number | null,
   status: 'ativo' as FabricRecord['status'],
 })
 
@@ -40,6 +41,7 @@ const resetForm = () => {
   form.name = ''
   form.category = ''
   form.colorOrCollection = ''
+  form.pricePerMeter = null
   form.status = 'ativo'
 }
 
@@ -64,6 +66,7 @@ const editFabric = (fabric: FabricRecord) => {
   form.name = fabric.name
   form.category = fabric.category
   form.colorOrCollection = fabric.colorOrCollection
+  form.pricePerMeter = fabric.pricePerMeter
   form.status = fabric.status
 }
 
@@ -117,7 +120,7 @@ onMounted(() => {
           <button type="button" class="ghost-link" @click="resetForm">Limpar</button>
         </div>
 
-        <div class="fields-grid fields-grid-3">
+        <div class="fields-grid fields-grid-4">
           <label class="field">
             <span>Nome</span>
             <input v-model="form.name" type="text" placeholder="Linho, gaze, sarja...">
@@ -129,6 +132,10 @@ onMounted(() => {
           <label class="field">
             <span>Cor / coleção</span>
             <input v-model="form.colorOrCollection" type="text" placeholder="Areia, coleção Verano...">
+          </label>
+          <label class="field">
+            <span>Valor por metro (R$)</span>
+            <input v-model.number="form.pricePerMeter" type="number" min="0" step="0.01" placeholder="79.90">
           </label>
         </div>
 
@@ -166,9 +173,15 @@ onMounted(() => {
             <p>{{ fabric.category }}<span v-if="fabric.colorOrCollection"> • {{ fabric.colorOrCollection }}</span></p>
           </div>
 
-          <div class="meta-row">
-            <strong>Unidade</strong>
-            <span>{{ fabric.unit }}</span>
+          <div class="meta-grid">
+            <div class="meta-row">
+              <strong>Unidade</strong>
+              <span>{{ fabric.unit }}</span>
+            </div>
+            <div class="meta-row">
+              <strong>Valor por metro</strong>
+              <span>{{ new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fabric.pricePerMeter) }}</span>
+            </div>
           </div>
 
           <div class="customer-actions">
@@ -278,6 +291,15 @@ select {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.fields-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.meta-grid {
+  display: grid;
+  gap: 8px;
+}
+
 .field span {
   color: rgba(26, 26, 26, 0.82);
   font-size: 0.84rem;
@@ -337,7 +359,8 @@ select {
 @media (max-width: 960px) {
   .page-card-hero,
   .fields-grid-2,
-  .fields-grid-3 {
+  .fields-grid-3,
+  .fields-grid-4 {
     grid-template-columns: 1fr;
   }
 }

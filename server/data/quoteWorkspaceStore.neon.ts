@@ -104,6 +104,7 @@ interface FabricRow {
   name: string
   category: string
   color_or_collection: string
+  price_per_meter: number
   unit: 'metro'
   status: FabricStatus
   created_at: string | Date
@@ -262,6 +263,33 @@ const normalizeFinalQuoteCode = (code: string) => {
   return normalized
 }
 
+const syncMaterialPricesFromFabricCatalog = (
+  record: AdminQuoteRecord,
+  fabrics: Map<string, FabricRecord>,
+) => {
+  record.items.forEach((item) => {
+    const quantity = Math.max(item.quantity || 1, 1)
+    const materialTotal = (item.fabricConsumptions || []).reduce((total, consumption) => {
+      if (!consumption.fabricId) {
+        return total
+      }
+
+      const quantityMeters = normalizeMeters(consumption.quantityMeters)
+      const fabric = fabrics.get(consumption.fabricId)
+
+      if (!fabric || !quantityMeters || quantityMeters <= 0) {
+        return total
+      }
+
+      return total + quantityMeters * fabric.pricePerMeter
+    }, 0)
+
+    if (materialTotal > 0) {
+      item.unitPrice = Math.round((materialTotal / quantity) * 100) / 100
+    }
+  })
+}
+
 const withClient = async <T>(task: (client: PoolClient) => Promise<T>) => {
   await ensureSchema()
   const pool = createPool()
@@ -344,6 +372,7 @@ const mapFabricRow = (row: FabricRow): FabricRecord => ({
   name: row.name,
   category: row.category,
   colorOrCollection: row.color_or_collection,
+  pricePerMeter: Number(row.price_per_meter) || 0,
   unit: row.unit,
   status: row.status,
   createdAt: toIso(row.created_at),
@@ -532,12 +561,15 @@ const ensureSchema = async () => {
           name TEXT NOT NULL,
           category TEXT NOT NULL,
           color_or_collection TEXT NOT NULL DEFAULT '',
+          price_per_meter NUMERIC(12, 2) NOT NULL DEFAULT 0,
           unit TEXT NOT NULL,
           status TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL
         )
       `
+
+      await sql`ALTER TABLE quote_workspace_fabrics ADD COLUMN IF NOT EXISTS price_per_meter NUMERIC(12, 2) NOT NULL DEFAULT 0`
 
       await sql`
         CREATE TABLE IF NOT EXISTS quote_workspace_seamstress_fabric_stock (
@@ -1442,6 +1474,8 @@ export const saveFinalQuoteRecord = async (input: {
       }
     }
 
+    syncMaterialPricesFromFabricCatalog(input.record, fabrics)
+
     const previousByKey = new Map(
       existingConsumptions.map((entry) => [buildQuoteFabricConsumptionKey(entry), entry] as const),
     )
@@ -1736,17 +1770,20 @@ export const saveFabricRecord = async (input: {
   name: string
   category: string
   colorOrCollection?: string
+  pricePerMeter?: number
   status: FabricStatus
 }): Promise<FabricRecord> => {
   await ensureSchema()
   const sql = getSql()
   const now = new Date().toISOString()
+  const pricePerMeter = Math.max(0, Math.round((input.pricePerMeter || 0) * 100) / 100)
   const [row] = await sql`
     INSERT INTO quote_workspace_fabrics (
       id,
       name,
       category,
       color_or_collection,
+      price_per_meter,
       unit,
       status,
       created_at,
@@ -1756,6 +1793,7 @@ export const saveFabricRecord = async (input: {
       ${input.name.trim()},
       ${input.category.trim()},
       ${input.colorOrCollection?.trim() || ''},
+      ${pricePerMeter},
       ${'metro'},
       ${input.status},
       ${now}::timestamptz,
@@ -1766,6 +1804,7 @@ export const saveFabricRecord = async (input: {
       name = EXCLUDED.name,
       category = EXCLUDED.category,
       color_or_collection = EXCLUDED.color_or_collection,
+      price_per_meter = EXCLUDED.price_per_meter,
       status = EXCLUDED.status,
       updated_at = EXCLUDED.updated_at
     RETURNING *
