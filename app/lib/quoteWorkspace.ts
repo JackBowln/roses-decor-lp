@@ -3,6 +3,7 @@ import {
   createEmptyQuoteRecord,
   formatBlackoutLabel,
   formatArea,
+  normalizeAdminQuoteRecord,
   normalizePhone,
   resolveInstallationMeters,
   type AdminQuoteRecord,
@@ -16,6 +17,9 @@ import {
 export type PreQuoteOrigin = 'site'
 export type PreQuoteStatus = 'novo' | 'em_analise' | 'convertido'
 export type FinalQuoteStatus = 'rascunho' | 'pronto' | 'cancelado'
+export type SaleStatus = 'vendido' | 'pago'
+export type QuoteLifecycleTag = 'Pré-orçamento' | 'Orçamento' | 'Orçamento concluído' | 'Vendido' | 'Pago' | 'Cancelado'
+export type SalesDashboardRange = 'week' | 'month' | 'year'
 export type SeamstressStatus = 'ativa' | 'inativa'
 export type InstallerStatus = 'ativo' | 'inativo'
 export type FabricStatus = 'ativo' | 'inativo'
@@ -98,6 +102,30 @@ export interface StoredFinalQuote {
   installerId: string | null
   status: FinalQuoteStatus
   record: AdminQuoteRecord
+  createdAt: string
+  updatedAt: string
+}
+
+export interface QuoteStageTransitionRecord {
+  id: string
+  quoteId: string
+  fromStage: string
+  toStage: string
+  changedAt: string
+  changedBy: string
+}
+
+export interface SaleRecord {
+  id: string
+  quoteId: string
+  customerId: string
+  preQuoteId: string | null
+  seamstressId: string | null
+  installerId: string | null
+  status: SaleStatus
+  recordSnapshot: AdminQuoteRecord
+  soldAt: string
+  paidAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -193,23 +221,69 @@ export interface InstallerDispatchRecord {
   createdAt: string
 }
 
+export interface SaleListItem extends SaleRecord {
+  customer: Pick<CustomerRecord, 'id' | 'name' | 'whatsapp' | 'email' | 'locationLabel' | 'city' | 'state'>
+  preQuoteCode: string | null
+  code: string
+  totalValue: number
+  paymentMethod: string
+  paymentTerms: string
+  itemCount: number
+  productTypes: Array<'cortina' | 'persiana'>
+  productLabel: string
+  seamstressName: string
+  installerName: string
+}
+
+export interface SalesCustomerGroup {
+  customer: Pick<CustomerRecord, 'id' | 'name' | 'whatsapp' | 'email' | 'locationLabel' | 'city' | 'state'>
+  sales: SaleListItem[]
+  saleCount: number
+  totalValue: number
+  lastSoldAt: string | null
+}
+
+export interface SalesDashboardMetrics {
+  range: SalesDashboardRange
+  totalSold: number
+  totalPaid: number
+  saleCount: number
+  ticketAverage: number
+  customerCount: number
+  soldCount: number
+  paidCount: number
+  conversionRate: number
+  topPaymentMethod: string
+  topSeamstress: string
+  topInstaller: string
+  topCategory: string
+}
+
 export interface QuoteWorkspaceStore {
   customers: CustomerRecord[]
   preQuotes: PreQuoteRecord[]
   finalQuotes: StoredFinalQuote[]
+  sales: SaleRecord[]
+  seamstresses: SeamstressRecord[]
   installers: InstallerRecord[]
   installerDispatches: InstallerDispatchRecord[]
+  quoteStageTransitions: QuoteStageTransitionRecord[]
 }
 
 export interface CustomerSummary extends CustomerRecord {
   preQuoteCount: number
   finalQuoteCount: number
+  saleCount: number
+  paidSaleCount: number
   lastPreQuoteAt: string | null
   lastPreQuoteId: string | null
   lastPreQuoteCode: string | null
   lastFinalQuoteAt: string | null
   lastFinalQuoteId: string | null
   lastFinalQuoteCode: string | null
+  lastSaleAt: string | null
+  lastSaleId: string | null
+  lastSaleCode: string | null
 }
 
 export interface PreQuoteListItem extends PreQuoteRecord {
@@ -222,6 +296,8 @@ export interface FinalQuoteDetails extends StoredFinalQuote {
   preQuote: PreQuoteRecord | null
   seamstress: SeamstressRecord | null
   installer: InstallerRecord | null
+  sale: SaleRecord | null
+  stageTransitions: QuoteStageTransitionRecord[]
   fabricConsumptions: QuoteFabricConsumptionRecord[]
   installerDispatches: InstallerDispatchRecord[]
 }
@@ -255,8 +331,11 @@ export const createWorkspaceStore = (): QuoteWorkspaceStore => ({
   customers: [],
   preQuotes: [],
   finalQuotes: [],
+  sales: [],
+  seamstresses: [],
   installers: [],
   installerDispatches: [],
+  quoteStageTransitions: [],
 })
 
 const buildYearScopedCode = (prefix: string) => {
@@ -562,6 +641,29 @@ export const createFinalQuoteRecord = (input: {
   }
 }
 
+export const createSaleRecordFromFinalQuote = (input: {
+  quote: StoredFinalQuote
+  soldAt?: string
+}): SaleRecord => {
+  const soldAt = input.soldAt || nowIso()
+  const recordSnapshot = normalizeAdminQuoteRecord(JSON.parse(JSON.stringify(input.quote.record)) as AdminQuoteRecord)
+
+  return {
+    id: createWorkspaceId('ven'),
+    quoteId: input.quote.id,
+    customerId: input.quote.customerId,
+    preQuoteId: input.quote.preQuoteId,
+    seamstressId: input.quote.seamstressId,
+    installerId: input.quote.installerId,
+    status: 'vendido',
+    recordSnapshot,
+    soldAt,
+    paidAt: null,
+    createdAt: soldAt,
+    updatedAt: soldAt,
+  }
+}
+
 export const getInstallableQuoteItems = (record: AdminQuoteRecord) =>
   record.items.filter((item) => item.installationIncluded === 'SIM')
 
@@ -661,6 +763,7 @@ export const hydrateQuoteRecordWithFabricConsumptions = (
   record: AdminQuoteRecord,
   consumptions: QuoteFabricConsumptionRecord[],
 ): AdminQuoteRecord => {
+  const normalizedRecord = normalizeAdminQuoteRecord(record)
   const byItemId = new Map<string, QuoteItemFabricConsumption[]>()
 
   consumptions.forEach((consumption) => {
@@ -674,8 +777,8 @@ export const hydrateQuoteRecordWithFabricConsumptions = (
   })
 
   return {
-    ...record,
-    items: record.items.map((item) => ({
+    ...normalizedRecord,
+    items: normalizedRecord.items.map((item) => ({
       ...item,
       fabricConsumptions: byItemId.get(item.id) || item.fabricConsumptions || [],
     })),
@@ -686,19 +789,26 @@ export const buildCustomerSummaries = (store: QuoteWorkspaceStore): CustomerSumm
   store.customers.map((customer) => {
     const preQuotes = store.preQuotes.filter((preQuote) => preQuote.customerId === customer.id)
     const finalQuotes = store.finalQuotes.filter((finalQuote) => finalQuote.customerId === customer.id)
+    const sales = store.sales.filter((sale) => sale.customerId === customer.id)
     const latestPreQuote = preQuotes[0]
     const latestFinalQuote = finalQuotes[0]
+    const latestSale = sales[0]
 
     return {
       ...customer,
       preQuoteCount: preQuotes.length,
       finalQuoteCount: finalQuotes.length,
+      saleCount: sales.length,
+      paidSaleCount: sales.filter((sale) => sale.status === 'pago').length,
       lastPreQuoteAt: latestPreQuote?.createdAt || null,
       lastPreQuoteId: latestPreQuote?.id || null,
       lastPreQuoteCode: latestPreQuote?.code || null,
       lastFinalQuoteAt: latestFinalQuote?.createdAt || null,
       lastFinalQuoteId: latestFinalQuote?.id || null,
       lastFinalQuoteCode: latestFinalQuote?.code || null,
+      lastSaleAt: latestSale?.soldAt || null,
+      lastSaleId: latestSale?.id || null,
+      lastSaleCode: latestSale?.recordSnapshot.project.code || null,
     }
   })
 
@@ -731,12 +841,43 @@ export const getPreQuoteStatusLabel = (status: PreQuoteStatus) => {
 export const getFinalQuoteStatusLabel = (status: FinalQuoteStatus) => {
   switch (status) {
     case 'rascunho':
-      return 'Rascunho'
+      return 'Orçamento'
     case 'pronto':
-      return 'Pronto'
+      return 'Orçamento concluído'
     case 'cancelado':
       return 'Cancelado'
   }
+}
+
+export const getSaleStatusLabel = (status: SaleStatus) => {
+  switch (status) {
+    case 'vendido':
+      return 'Vendido'
+    case 'pago':
+      return 'Pago'
+  }
+}
+
+export const resolveQuoteLifecycleTag = (
+  input: {
+    preQuote?: PreQuoteRecord | null
+    quoteStatus?: FinalQuoteStatus | null
+    saleStatus?: SaleStatus | null
+  },
+): QuoteLifecycleTag => {
+  if (input.saleStatus) {
+    return input.saleStatus === 'pago' ? 'Pago' : 'Vendido'
+  }
+
+  if (input.quoteStatus) {
+    return getFinalQuoteStatusLabel(input.quoteStatus)
+  }
+
+  if (input.preQuote) {
+    return 'Pré-orçamento'
+  }
+
+  return 'Orçamento'
 }
 
 export const formatPreQuoteMeasureLabel = (item: PreQuoteItemRecord) => {

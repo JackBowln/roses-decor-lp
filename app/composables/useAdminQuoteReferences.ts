@@ -114,6 +114,7 @@ export const useAdminQuoteReferences = (options: UseAdminQuoteReferencesOptions)
       fabrics: fabrics.value.map((fabric) => [fabric.id, fabric.pricePerMeter]),
       items: options.record.value.items.map((item) => ({
         id: item.id,
+        width: item.width,
         quantity: item.quantity,
         fabricConsumptions: (item.fabricConsumptions || []).map((consumption) => ({
           fabricId: consumption.fabricId,

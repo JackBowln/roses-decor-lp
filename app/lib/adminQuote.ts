@@ -1,6 +1,6 @@
 import { isValidEmail, isValidPhone } from '@/lib/fieldMasks'
 
-export type QuoteTabId = 'cliente' | 'projeto' | 'itens' | 'costureira' | 'instalador' | 'envio'
+export type QuoteTabId = 'resumo' | 'cliente' | 'projeto' | 'itens' | 'costureira' | 'instalador' | 'envio'
 export type QuoteDocumentKind = 'cliente' | 'costureira' | 'instalador'
 export type ProductCategory = 'Cortina em tecido' | 'Persiana rolo' | 'Persiana de madeira' | 'Double vision' | 'Romana' | 'Outro'
 export type MountType = 'Teto' | 'Parede' | 'Vão'
@@ -49,6 +49,7 @@ export interface QuoteProject {
   validUntil: string
   installationDate: string
   salesRep: string
+  paymentMethod: string
   paymentTerms: string
   deliveryLeadTime: string
   installationTerms: string
@@ -129,6 +130,11 @@ export interface DocumentSummary {
 
 export const quoteWorkbookTabs: QuoteWorkbookTab[] = [
   {
+    id: 'resumo',
+    label: 'Resumo',
+    description: 'Visão executiva do cliente, responsáveis, pedido e dados principais do orçamento.',
+  },
+  {
     id: 'cliente',
     label: 'Cliente',
     description: 'Cabeçalho equivalente ao topo das abas MEMÓRIA DE CÁLCULO e ORÇAMENTO.',
@@ -176,6 +182,41 @@ export const fabricOptions: FabricOption[] = ['LINHO', 'LINHO RUSTICO', 'VOIL', 
 export const pleatOptions: PleatOption[] = ['WAVE', 'PA', 'NÃO']
 export const mountTypeOptions: MountType[] = ['Teto', 'Parede', 'Vão']
 export const openingSideOptions: OpeningSide[] = ['Esquerda', 'Direita', 'Centro', 'Dupla abertura', 'Não se aplica']
+
+const createQuoteCustomerDefaults = (): QuoteCustomer => ({
+  name: '',
+  phone: '',
+  email: '',
+  address: '',
+  complement: '',
+  neighborhood: '',
+  city: '',
+  state: '',
+  zipcode: '',
+})
+
+const createQuoteProjectDefaults = (): Omit<QuoteProject, 'code' | 'createdAt' | 'validUntil'> => ({
+  installationDate: '',
+  salesRep: 'Roses Decor',
+  paymentMethod: 'A combinar',
+  paymentTerms: '50% no pedido e 50% na entrega.',
+  deliveryLeadTime: '20 dias',
+  installationTerms: 'Inclusa no valor',
+  cashDiscountRate: 20,
+  cardDiscountRate: 10,
+  cardInstallments: 3,
+  discount: 0,
+  travelFee: 0,
+  installationFee: 0,
+  notes: 'Orçamento sujeito a alteração conforme medidas finais e definição de padrões/tecidos.',
+})
+
+const createQuoteStakeholderDefaults = (name: string): QuoteStakeholder => ({
+  name,
+  email: '',
+  whatsapp: '',
+  notes: '',
+})
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const plusDaysIso = (days: number) => {
@@ -274,48 +315,143 @@ export const createEmptyLineItem = (): QuoteLineItem => ({
 })
 
 export const createEmptyQuoteRecord = (): AdminQuoteRecord => ({
-  customer: {
-    name: '',
-    phone: '',
-    email: '',
-    address: '',
-    complement: '',
-    neighborhood: '',
-    city: '',
-    state: '',
-    zipcode: '',
-  },
+  customer: createQuoteCustomerDefaults(),
   project: {
     code: createDraftQuoteCode(),
     createdAt: todayIso(),
     validUntil: plusDaysIso(15),
-    installationDate: '',
-    salesRep: 'Roses Decor',
-    paymentTerms: '50% no pedido e 50% na entrega.',
-    deliveryLeadTime: '20 dias',
-    installationTerms: 'Inclusa no valor',
-    cashDiscountRate: 20,
-    cardDiscountRate: 10,
-    cardInstallments: 3,
-    discount: 0,
-    travelFee: 0,
-    installationFee: 0,
-    notes: 'Orçamento sujeito a alteração conforme medidas finais e definição de padrões/tecidos.',
+    ...createQuoteProjectDefaults(),
   },
-  seamstress: {
-    name: 'Costureira responsável',
-    email: '',
-    whatsapp: '',
-    notes: '',
-  },
-  installer: {
-    name: 'Instalador responsável',
-    email: '',
-    whatsapp: '',
-    notes: '',
-  },
+  seamstress: createQuoteStakeholderDefaults('Costureira responsável'),
+  installer: createQuoteStakeholderDefaults('Instalador responsável'),
   items: [createEmptyLineItem()],
 })
+
+const isRecordObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const resolveStringField = (value: unknown, fallback = '') =>
+  typeof value === 'string' ? value : fallback
+
+const resolveNullableNumber = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+
+const resolveNumberField = (value: unknown, fallback = 0) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
+const resolveIntegerField = (value: unknown, fallback: number) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback
+  }
+
+  return Math.max(Math.round(value), 0)
+}
+
+const resolveEnumField = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
+  typeof value === 'string' && allowed.includes(value as T) ? value as T : fallback
+
+export const normalizeQuoteItemFabricConsumption = (value: unknown): QuoteItemFabricConsumption => {
+  const fallback = createEmptyItemFabricConsumption()
+  const raw = isRecordObject(value) ? value : {}
+
+  return {
+    id: resolveStringField(raw.id, fallback.id),
+    fabricId: resolveStringField(raw.fabricId),
+    quantityMeters: resolveNullableNumber(raw.quantityMeters),
+  }
+}
+
+export const normalizeQuoteLineItem = (value: unknown): QuoteLineItem => {
+  const fallback = createEmptyLineItem()
+  const raw = isRecordObject(value) ? value : {}
+
+  return {
+    id: resolveStringField(raw.id, fallback.id),
+    room: resolveStringField(raw.room),
+    openingLabel: resolveStringField(raw.openingLabel),
+    category: resolveEnumField(raw.category, productCategoryOptions, fallback.category),
+    quantity: Math.max(resolveIntegerField(raw.quantity, fallback.quantity), 1),
+    width: resolveNullableNumber(raw.width),
+    height: resolveNullableNumber(raw.height),
+    trackType: resolveEnumField(raw.trackType, trackTypeOptions, fallback.trackType),
+    wallSupport: resolveEnumField(raw.wallSupport, yesNoOptions, fallback.wallSupport),
+    slider: resolveEnumField(raw.slider, yesNoOptions, fallback.slider),
+    terminal: resolveEnumField(raw.terminal, yesNoOptions, fallback.terminal),
+    blackout: resolveEnumField(raw.blackout, blackoutOptions, fallback.blackout),
+    fabric: resolveEnumField(raw.fabric, fabricOptions, fallback.fabric),
+    fabricColor: resolveStringField(raw.fabricColor),
+    pleatModel: resolveEnumField(raw.pleatModel, pleatOptions, fallback.pleatModel),
+    installationIncluded: resolveEnumField(raw.installationIncluded, yesNoOptions, fallback.installationIncluded),
+    mountType: resolveEnumField(raw.mountType, mountTypeOptions, fallback.mountType),
+    openingSide: resolveEnumField(raw.openingSide, openingSideOptions, fallback.openingSide),
+    controlSide: resolveStringField(raw.controlSide),
+    installationMeters: resolveNullableNumber(raw.installationMeters),
+    unitPrice: resolveNullableNumber(raw.unitPrice),
+    sewingPrice: resolveNullableNumber(raw.sewingPrice),
+    installationPrice: resolveNullableNumber(raw.installationPrice),
+    notes: resolveStringField(raw.notes),
+    fabricConsumptions: Array.isArray(raw.fabricConsumptions)
+      ? raw.fabricConsumptions.map(normalizeQuoteItemFabricConsumption)
+      : [],
+  }
+}
+
+export const normalizeAdminQuoteRecord = (value: Partial<AdminQuoteRecord> | null | undefined): AdminQuoteRecord => {
+  const raw = isRecordObject(value) ? value : {}
+  const customer = isRecordObject(raw.customer) ? raw.customer : {}
+  const project = isRecordObject(raw.project) ? raw.project : {}
+  const seamstress = isRecordObject(raw.seamstress) ? raw.seamstress : {}
+  const installer = isRecordObject(raw.installer) ? raw.installer : {}
+  const projectDefaults = createQuoteProjectDefaults()
+
+  return {
+    customer: {
+      ...createQuoteCustomerDefaults(),
+      name: resolveStringField(customer.name),
+      phone: resolveStringField(customer.phone),
+      email: resolveStringField(customer.email),
+      address: resolveStringField(customer.address),
+      complement: resolveStringField(customer.complement),
+      neighborhood: resolveStringField(customer.neighborhood),
+      city: resolveStringField(customer.city),
+      state: resolveStringField(customer.state),
+      zipcode: resolveStringField(customer.zipcode),
+    },
+    project: {
+      code: resolveStringField(project.code),
+      createdAt: resolveStringField(project.createdAt),
+      validUntil: resolveStringField(project.validUntil),
+      installationDate: resolveStringField(project.installationDate),
+      salesRep: resolveStringField(project.salesRep, projectDefaults.salesRep),
+      paymentMethod: resolveStringField(project.paymentMethod, projectDefaults.paymentMethod),
+      paymentTerms: resolveStringField(project.paymentTerms, projectDefaults.paymentTerms),
+      deliveryLeadTime: resolveStringField(project.deliveryLeadTime, projectDefaults.deliveryLeadTime),
+      installationTerms: resolveStringField(project.installationTerms, projectDefaults.installationTerms),
+      cashDiscountRate: resolveNumberField(project.cashDiscountRate, projectDefaults.cashDiscountRate),
+      cardDiscountRate: resolveNumberField(project.cardDiscountRate, projectDefaults.cardDiscountRate),
+      cardInstallments: Math.max(resolveIntegerField(project.cardInstallments, projectDefaults.cardInstallments), 1),
+      discount: resolveNullableNumber(project.discount) ?? projectDefaults.discount,
+      travelFee: resolveNullableNumber(project.travelFee) ?? projectDefaults.travelFee,
+      installationFee: resolveNullableNumber(project.installationFee) ?? projectDefaults.installationFee,
+      notes: resolveStringField(project.notes, projectDefaults.notes),
+    },
+    seamstress: {
+      ...createQuoteStakeholderDefaults('Costureira responsável'),
+      name: resolveStringField(seamstress.name, 'Costureira responsável'),
+      email: resolveStringField(seamstress.email),
+      whatsapp: resolveStringField(seamstress.whatsapp),
+      notes: resolveStringField(seamstress.notes),
+    },
+    installer: {
+      ...createQuoteStakeholderDefaults('Instalador responsável'),
+      name: resolveStringField(installer.name, 'Instalador responsável'),
+      email: resolveStringField(installer.email),
+      whatsapp: resolveStringField(installer.whatsapp),
+      notes: resolveStringField(installer.notes),
+    },
+    items: Array.isArray(raw.items) ? raw.items.map(normalizeQuoteLineItem) : [createEmptyLineItem()],
+  }
+}
 
 const resolvePrice = (value: PriceField) => value ?? 0
 const resolveMeters = (value: number | null | undefined) => (typeof value === 'number' && Number.isFinite(value) ? value : 0)

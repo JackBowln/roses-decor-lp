@@ -1,6 +1,6 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { toast } from 'vue-sonner'
-import type { AdminQuoteRecord } from '@/lib/adminQuote'
+import type { AdminQuoteRecord, QuoteTabId } from '@/lib/adminQuote'
 import {
   buildQuoteSummaryStats,
   clearQuoteDraftMeta,
@@ -9,13 +9,14 @@ import {
   writeQuoteDraftMeta,
 } from '@/lib/adminQuoteManagement'
 import { getApiErrorMessage } from '@/lib/apiError'
-import { fetchFinalQuote, fetchInstallerDispatches, saveFinalQuote, type LoadedFinalQuotePayload } from '@/lib/quoteWorkspaceApi'
-import type { InstallerDispatchRecord, StoredFinalQuote } from '@/lib/quoteWorkspace'
+import { fetchFinalQuote, fetchInstallerDispatches, saveFinalQuote, transitionSale, type LoadedFinalQuotePayload } from '@/lib/quoteWorkspaceApi'
+import type { InstallerDispatchRecord, SaleRecord, StoredFinalQuote } from '@/lib/quoteWorkspace'
 
 interface UseAdminQuoteWorkspaceOptions {
   record: Ref<AdminQuoteRecord>
   resetRecord: () => void
   isReady: Ref<boolean>
+  activeTab: Ref<QuoteTabId>
   selectedSeamstressId: Ref<string | null>
   selectedInstallerId: Ref<string | null>
   quoteStatus: Ref<StoredFinalQuote['status']>
@@ -26,12 +27,14 @@ interface UseAdminQuoteWorkspaceOptions {
 
 export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) => {
   const route = useRoute()
+  const VALID_TABS: QuoteTabId[] = ['resumo', 'cliente', 'projeto', 'itens', 'costureira', 'instalador', 'envio']
   const activeQuoteId = ref<string | null>(null)
   const linkedCustomerId = ref<string | null>(null)
   const linkedPreQuoteId = ref<string | null>(null)
   const linkedPreQuoteCode = ref('')
   const linkedCustomerName = ref('')
   const linkedCustomerLocation = ref('')
+  const linkedSale = ref<SaleRecord | null>(null)
   const installerDispatches = ref<InstallerDispatchRecord[]>([])
   const isLoadingRecord = ref(false)
   const isSavingRecord = ref(false)
@@ -45,6 +48,7 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
     linkedPreQuoteCode.value = payload.preQuote?.code || ''
     linkedCustomerName.value = payload.customer?.name || ''
     linkedCustomerLocation.value = payload.customer?.locationLabel || ''
+    linkedSale.value = payload.sale
     options.selectedSeamstressId.value = payload.seamstressId
     options.selectedInstallerId.value = payload.installerId
     options.quoteStatus.value = payload.status
@@ -52,19 +56,27 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
     lastSavedAt.value = payload.updatedAt
   }
 
+  const resolveRouteTab = () => {
+    const tab = typeof route.query.tab === 'string' ? route.query.tab : ''
+    return VALID_TABS.includes(tab as QuoteTabId) ? tab as QuoteTabId : null
+  }
+
   const restoreDraftMeta = () => {
     const draftMeta = readQuoteDraftMeta()
+    const routeTab = resolveRouteTab()
 
     if (!draftMeta) {
       options.selectedSeamstressId.value = null
       options.selectedInstallerId.value = null
       options.quoteStatus.value = 'rascunho'
+      options.activeTab.value = routeTab || 'cliente'
       return
     }
 
     options.selectedSeamstressId.value = draftMeta.selectedSeamstressId
     options.selectedInstallerId.value = draftMeta.selectedInstallerId
     options.quoteStatus.value = draftMeta.quoteStatus
+    options.activeTab.value = routeTab || draftMeta.activeTab
   }
 
   const persistDraftMeta = () => {
@@ -72,6 +84,7 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
       selectedSeamstressId: options.selectedSeamstressId.value,
       selectedInstallerId: options.selectedInstallerId.value,
       quoteStatus: options.quoteStatus.value,
+      activeTab: options.activeTab.value,
     })
   }
 
@@ -82,6 +95,7 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
     linkedPreQuoteCode.value = ''
     linkedCustomerName.value = ''
     linkedCustomerLocation.value = ''
+    linkedSale.value = null
     installerDispatches.value = []
     lastSavedAt.value = ''
   }
@@ -99,6 +113,7 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
       isLoadingRecord.value = true
       const payload = await fetchFinalQuote(quoteId)
       applyLoadedQuote(payload)
+      options.activeTab.value = resolveRouteTab() || options.activeTab.value
       clearQuoteDraftMeta()
     }
     catch (error) {
@@ -154,6 +169,16 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
           path: '/gestao/orcamentos',
           query: {
             quoteId: response.finalQuote.id,
+            tab: options.activeTab.value,
+          },
+        }, { replace: true })
+      }
+      else if (route.query.tab !== options.activeTab.value) {
+        await navigateTo({
+          path: '/gestao/orcamentos',
+          query: {
+            ...route.query,
+            tab: options.activeTab.value,
           },
         }, { replace: true })
       }
@@ -163,12 +188,40 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
           ? 'Orçamento salvo. O código foi ajustado automaticamente para evitar duplicidade.'
           : 'Orçamento salvo com sucesso.',
       )
+      return response.finalQuote
     }
     catch (error) {
       toast.error(getApiErrorMessage(error, 'Não foi possível salvar o orçamento.'))
+      return null
     }
     finally {
       isSavingRecord.value = false
+    }
+  }
+
+  const promoteCurrentQuoteToSale = async () => {
+    try {
+      const savedQuote = await saveCurrentQuote()
+
+      if (!savedQuote) {
+        return null
+      }
+
+      const response = await transitionSale(savedQuote.id, 'vendido')
+
+      if (response.finalQuote) {
+        applyLoadedQuote(response.finalQuote)
+      }
+      else {
+        linkedSale.value = response.sale
+      }
+
+      toast.success('Venda registrada com sucesso.')
+      return response.sale
+    }
+    catch (error) {
+      toast.error(getApiErrorMessage(error, 'Não foi possível marcar o orçamento como vendido.'))
+      return null
     }
   }
 
@@ -188,6 +241,25 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
     }
   })
 
+  watch(options.activeTab, async (tab) => {
+    if (!activeQuoteId.value && typeof route.query.quoteId !== 'string') {
+      persistDraftMeta()
+      return
+    }
+
+    if (route.query.tab === tab) {
+      return
+    }
+
+    await navigateTo({
+      path: '/gestao/orcamentos',
+      query: {
+        ...route.query,
+        tab,
+      },
+    }, { replace: true })
+  })
+
   watch(options.isReady, (ready) => {
     if (ready) {
       void loadQuoteFromRoute()
@@ -197,6 +269,16 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
   watch(() => route.query.quoteId, () => {
     if (options.isReady.value) {
       void loadQuoteFromRoute()
+    }
+  })
+
+  watch(() => route.query.tab, (tab) => {
+    if (typeof tab !== 'string') {
+      return
+    }
+
+    if (VALID_TABS.includes(tab as QuoteTabId)) {
+      options.activeTab.value = tab as QuoteTabId
     }
   })
 
@@ -216,10 +298,12 @@ export const useAdminQuoteWorkspace = (options: UseAdminQuoteWorkspaceOptions) =
     linkedCustomerId,
     linkedCustomerLocation,
     linkedCustomerName,
+    linkedSale,
     linkedPreQuoteCode,
     linkedPreQuoteId,
     loadInstallerDispatches,
     loadQuoteFromRoute,
+    promoteCurrentQuoteToSale,
     restoreDraftMeta,
     saveCurrentQuote,
     startEmptyQuote,

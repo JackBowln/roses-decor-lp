@@ -8,6 +8,11 @@ import type {
   InstallerRecord,
   PreQuoteListItem,
   PreQuoteRecord,
+  QuoteStageTransitionRecord,
+  SaleListItem,
+  SaleRecord,
+  SalesDashboardMetrics,
+  SalesDashboardRange,
   SeamstressRecord,
   SeamstressStockBalanceView,
   StockMovementListItem,
@@ -47,7 +52,19 @@ export interface LoadedFinalQuotePayload {
     whatsapp: string
     status: string
   } | null
+  sale: SaleRecord | null
+  stageTransitions: QuoteStageTransitionRecord[]
   installerDispatches: InstallerDispatchRecord[]
+}
+
+export interface LoadedSalePayload {
+  sale: SaleListItem
+  quote: LoadedFinalQuotePayload
+  customer: LoadedFinalQuotePayload['customer']
+  preQuote: LoadedFinalQuotePayload['preQuote']
+  seamstress: LoadedFinalQuotePayload['seamstress']
+  installer: LoadedFinalQuotePayload['installer']
+  stageTransitions: QuoteStageTransitionRecord[]
 }
 
 interface SaveFinalQuotePayload {
@@ -113,6 +130,65 @@ export const convertPreQuoteToFinalQuote = (id: string) =>
 
 export const fetchFinalQuote = (id: string) =>
   adminFetch<LoadedFinalQuotePayload>(`/api/admin/final-quotes/${id}`)
+
+export const fetchSales = (filters?: {
+  customerId?: string
+  search?: string
+  status?: SaleRecord['status'] | 'all'
+  dateFrom?: string
+  dateTo?: string
+  paymentMethod?: string
+  seamstressId?: string
+  installerId?: string
+  productType?: SaleListItem['productTypes'][number]
+  sortBy?: 'customer' | 'date' | 'value' | 'status'
+}) =>
+  adminFetch<{ sales: SaleListItem[] }>(`/api/admin/sales${buildQueryString({
+    customerId: filters?.customerId,
+    search: filters?.search,
+    status: filters?.status,
+    dateFrom: filters?.dateFrom,
+    dateTo: filters?.dateTo,
+    paymentMethod: filters?.paymentMethod,
+    seamstressId: filters?.seamstressId,
+    installerId: filters?.installerId,
+    productType: filters?.productType,
+    sortBy: filters?.sortBy,
+  })}`)
+
+export const fetchSale = (id: string) =>
+  adminFetch<LoadedSalePayload>(`/api/admin/sales/${id}`)
+
+export const transitionSale = (quoteId: string, status: SaleRecord['status']) =>
+  adminFetch<{ ok: true; sale: SaleRecord; finalQuote: LoadedFinalQuotePayload | null }>(`/api/admin/sales/${quoteId}/status`, {
+    method: 'POST',
+    body: { status },
+  })
+
+export const fetchSalesDashboardMetrics = (filters: {
+  range: SalesDashboardRange
+  customerId?: string
+  search?: string
+  status?: SaleRecord['status'] | 'all'
+  dateFrom?: string
+  dateTo?: string
+  paymentMethod?: string
+  seamstressId?: string
+  installerId?: string
+  productType?: SaleListItem['productTypes'][number]
+}) =>
+  adminFetch<{ metrics: SalesDashboardMetrics }>(`/api/admin/sales/dashboard${buildQueryString({
+    range: filters.range,
+    customerId: filters.customerId,
+    search: filters.search,
+    status: filters.status,
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    paymentMethod: filters.paymentMethod,
+    seamstressId: filters.seamstressId,
+    installerId: filters.installerId,
+    productType: filters.productType,
+  })}`)
 
 export const saveFinalQuote = (payload: SaveFinalQuotePayload) =>
   adminFetch<{ ok: true; finalQuote: LoadedFinalQuotePayload }>('/api/admin/final-quotes/save', {

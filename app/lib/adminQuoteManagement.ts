@@ -1,5 +1,5 @@
-import { formatCurrency, type AdminQuoteRecord, type QuoteTotals } from '@/lib/adminQuote'
-import { normalizeMeters, type FabricRecord, type InstallerRecord, type SeamstressRecord, type SeamstressStockBalanceView, type StoredFinalQuote } from '@/lib/quoteWorkspace'
+import { formatCurrency, type AdminQuoteRecord, type QuoteItemFabricConsumption, type QuoteLineItem, type QuoteTabId, type QuoteTotals } from '@/lib/adminQuote'
+import { normalizeMeters, resolveQuoteLifecycleTag, type FabricRecord, type InstallerRecord, type SaleRecord, type SeamstressRecord, type SeamstressStockBalanceView, type StoredFinalQuote } from '@/lib/quoteWorkspace'
 
 export const QUOTE_DRAFT_META_STORAGE_KEY = 'roses-decor-admin-quote-meta'
 
@@ -7,6 +7,7 @@ export interface QuoteDraftMeta {
   selectedSeamstressId: string | null
   selectedInstallerId: string | null
   quoteStatus: StoredFinalQuote['status']
+  activeTab: QuoteTabId
 }
 
 interface ContactDirectoryRecord {
@@ -14,6 +15,16 @@ interface ContactDirectoryRecord {
   name: string
   email: string
   whatsapp: string
+}
+
+export interface QuoteBusinessSummaryItem {
+  label: string
+  value: string
+}
+
+export interface QuoteBusinessSummarySection {
+  title: string
+  items: QuoteBusinessSummaryItem[]
 }
 
 export const readQuoteDraftMeta = (): QuoteDraftMeta | null => {
@@ -36,6 +47,14 @@ export const readQuoteDraftMeta = (): QuoteDraftMeta | null => {
       quoteStatus: parsed.quoteStatus === 'pronto' || parsed.quoteStatus === 'cancelado'
         ? parsed.quoteStatus
         : 'rascunho',
+      activeTab: parsed.activeTab === 'resumo'
+        || parsed.activeTab === 'projeto'
+        || parsed.activeTab === 'itens'
+        || parsed.activeTab === 'costureira'
+        || parsed.activeTab === 'instalador'
+        || parsed.activeTab === 'envio'
+        ? parsed.activeTab
+        : 'cliente',
     }
   }
   catch {
@@ -88,6 +107,30 @@ export const createStockBalanceMap = (balances: SeamstressStockBalanceView[]) =>
     return accumulator
   }, {})
 
+export const resolveFabricConsumptionMeters = (
+  item: Pick<QuoteLineItem, 'width' | 'quantity'>,
+  consumption: Pick<QuoteItemFabricConsumption, 'fabricId' | 'quantityMeters'>,
+) => {
+  const explicitMeters = normalizeMeters(consumption.quantityMeters)
+
+  if (explicitMeters && explicitMeters > 0) {
+    return explicitMeters
+  }
+
+  if (!consumption.fabricId) {
+    return null
+  }
+
+  const estimatedWidth = normalizeMeters(item.width)
+
+  if (!estimatedWidth || estimatedWidth <= 0) {
+    return null
+  }
+
+  const quantity = Math.max(item.quantity || 1, 1)
+  return Math.round(estimatedWidth * quantity * 1000) / 1000
+}
+
 export const syncAutomaticMaterialPricing = (
   record: AdminQuoteRecord,
   fabricPriceById: Record<string, number>,
@@ -98,7 +141,7 @@ export const syncAutomaticMaterialPricing = (
     let hasPricedConsumptions = false
 
     for (const consumption of item.fabricConsumptions || []) {
-      const quantityMeters = normalizeMeters(consumption.quantityMeters)
+      const quantityMeters = resolveFabricConsumptionMeters(item, consumption)
       const pricePerMeter = consumption.fabricId ? fabricPriceById[consumption.fabricId] : undefined
 
       if (typeof pricePerMeter !== 'number' || pricePerMeter <= 0 || !quantityMeters || quantityMeters <= 0) {
@@ -165,6 +208,102 @@ export const buildQuoteSummaryStats = (input: {
     value: input.lastSavedAt ? new Date(input.lastSavedAt).toLocaleString('pt-BR') : 'Não salvo',
   },
 ]
+
+const buildCompactAddressSummary = (record: AdminQuoteRecord) =>
+  [
+    record.customer.address,
+    record.customer.complement,
+    record.customer.neighborhood,
+    record.customer.city ? `${record.customer.city}${record.customer.state ? `/${record.customer.state}` : ''}` : '',
+    record.customer.zipcode ? `CEP ${record.customer.zipcode}` : '',
+  ].filter(Boolean).join(' • ') || 'Endereço pendente'
+
+const formatStakeholderSummary = (
+  name: string,
+  email: string,
+  whatsapp: string,
+  hasResponsible: boolean,
+) => {
+  if (!hasResponsible) {
+    return {
+      name: 'Não definido',
+      contact: 'Sem responsável vinculado',
+    }
+  }
+
+  return {
+    name: name || 'Responsável sem nome',
+    contact: email || whatsapp || 'Contato pendente',
+  }
+}
+
+export const buildQuoteBusinessSummary = (input: {
+  record: AdminQuoteRecord
+  quoteStatus: StoredFinalQuote['status']
+  saleStatus?: SaleRecord['status'] | null
+  linkedPreQuoteCode: string
+  linkedCustomerLocation: string
+  totals: QuoteTotals
+  installableItemCount: number
+  installationTotalMeters: number
+  hasSeamstressResponsible: boolean
+  hasInstallerResponsible: boolean
+}) => {
+  const seamstress = formatStakeholderSummary(
+    input.record.seamstress.name,
+    input.record.seamstress.email,
+    input.record.seamstress.whatsapp,
+    input.hasSeamstressResponsible,
+  )
+  const installer = formatStakeholderSummary(
+    input.record.installer.name,
+    input.record.installer.email,
+    input.record.installer.whatsapp,
+    input.hasInstallerResponsible,
+  )
+
+  return [
+    {
+      title: 'Cliente',
+      items: [
+        { label: 'Nome', value: input.record.customer.name || 'Cliente não informado' },
+        { label: 'Contato principal', value: input.record.customer.phone || input.record.customer.email || 'Contato pendente' },
+        { label: 'Endereço resumido', value: buildCompactAddressSummary(input.record) },
+        { label: 'Origem comercial', value: input.linkedPreQuoteCode || input.linkedCustomerLocation || 'Cadastro direto no orçamento' },
+      ],
+    },
+    {
+      title: 'Pedido',
+      items: [
+        { label: 'Código', value: input.record.project.code || 'Sem código' },
+        { label: 'Status', value: resolveQuoteLifecycleTag({ quoteStatus: input.quoteStatus, saleStatus: input.saleStatus || null }) },
+        { label: 'Emissão', value: input.record.project.createdAt || 'Pendente' },
+        { label: 'Validade', value: input.record.project.validUntil || 'Pendente' },
+        { label: 'Prazo', value: input.record.project.deliveryLeadTime || 'Pendente' },
+        { label: 'Instalação / entrega', value: input.record.project.installationDate || 'Pendente' },
+        { label: 'Itens', value: String(input.record.items.length) },
+        { label: 'Total estimado', value: formatCurrency(input.totals.grandTotal) },
+      ],
+    },
+    {
+      title: 'Costureira',
+      items: [
+        { label: 'Responsável', value: seamstress.name },
+        { label: 'Contato', value: seamstress.contact },
+        { label: 'Observação', value: input.record.seamstress.notes || 'Sem observações para costura' },
+      ],
+    },
+    {
+      title: 'Instalador',
+      items: [
+        { label: 'Responsável', value: installer.name },
+        { label: 'Contato', value: installer.contact },
+        { label: 'Itens instaláveis', value: String(input.installableItemCount) },
+        { label: 'Metros de instalação', value: `${input.installationTotalMeters.toFixed(2)} m` },
+      ],
+    },
+  ] satisfies QuoteBusinessSummarySection[]
+}
 
 export const filterActiveSeamstresses = (records: SeamstressRecord[], currentId: string | null) =>
   filterActiveRecordsWithCurrentId(records, currentId, (record) => record.status === 'ativa')

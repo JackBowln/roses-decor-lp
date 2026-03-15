@@ -2,8 +2,10 @@
 import AdminDocumentCard from '@/components/admin/AdminDocumentCard.vue'
 import AdminQuoteItemCard from '@/components/admin/AdminQuoteItemCard.vue'
 import AdminTabs from '@/components/admin/AdminTabs.vue'
-import { formatCurrency, quoteWorkbookTabs } from '@/lib/adminQuote'
-import type { StoredFinalQuote } from '@/lib/quoteWorkspace'
+import { formatCurrency, quoteWorkbookTabs, type QuoteTabId } from '@/lib/adminQuote'
+import { buildQuoteBusinessSummary } from '@/lib/adminQuoteManagement'
+import { resolveQuoteLifecycleTag, type StoredFinalQuote } from '@/lib/quoteWorkspace'
+import { getQuoteLifecycleTone } from '@/lib/sales'
 
 definePageMeta({
   layout: 'admin',
@@ -62,9 +64,11 @@ const {
   linkedCustomerId,
   linkedCustomerLocation,
   linkedCustomerName,
+  linkedSale,
   linkedPreQuoteCode,
   linkedPreQuoteId,
   loadInstallerDispatches,
+  promoteCurrentQuoteToSale,
   restoreDraftMeta,
   saveCurrentQuote,
   startEmptyQuote,
@@ -73,6 +77,7 @@ const {
   record,
   resetRecord,
   isReady,
+  activeTab,
   selectedSeamstressId,
   selectedInstallerId,
   quoteStatus,
@@ -95,6 +100,72 @@ const seamstressPreviewLines = computed(() =>
 
 const installerPreviewLines = computed(() =>
   documents.value.find((document) => document.kind === 'instalador')?.summary.lines.slice(0, 8) || [])
+
+const isMobileQuickNavOpen = ref(false)
+const isMobileSummaryOpen = ref(false)
+
+const activeTabMeta = computed(() =>
+  quoteWorkbookTabs.find((tab) => tab.id === activeTab.value) ?? quoteWorkbookTabs[0])
+
+const businessSummarySections = computed(() =>
+  buildQuoteBusinessSummary({
+    record: record.value,
+    quoteStatus: quoteStatus.value,
+    saleStatus: linkedSale.value?.status || null,
+    linkedPreQuoteCode: linkedPreQuoteCode.value,
+    linkedCustomerLocation: linkedCustomerLocation.value,
+    totals: totals.value,
+    installableItemCount: installationSummary.value.installableItemCount,
+    installationTotalMeters: installationSummary.value.totalMeters,
+    hasSeamstressResponsible: Boolean(selectedSeamstressId.value),
+    hasInstallerResponsible: Boolean(selectedInstallerId.value),
+  }))
+
+const summaryStatusLabel = computed(() => {
+  return resolveQuoteLifecycleTag({
+    quoteStatus: quoteStatus.value,
+    saleStatus: linkedSale.value?.status || null,
+  })
+})
+
+const summaryStatusTone = computed(() => getQuoteLifecycleTone(summaryStatusLabel.value))
+
+const summaryHeroMetrics = computed(() => [
+  {
+    label: 'Status',
+    value: summaryStatusLabel.value,
+  },
+  {
+    label: 'Total estimado',
+    value: formatCurrency(totals.value.grandTotal),
+  },
+  {
+    label: 'Itens',
+    value: String(record.value.items.length),
+  },
+  {
+    label: 'Instalação / entrega',
+    value: record.value.project.installationDate || 'Pendente',
+  },
+])
+
+const handleMobileTabSelect = (tab: QuoteTabId) => {
+  activeTab.value = tab
+}
+
+const handleMobileTabDropdownChange = (value: string | number) => {
+  if (typeof value !== 'string') {
+    return
+  }
+
+  const selectedTab = quoteWorkbookTabs.find((tab) => tab.id === value)
+
+  if (!selectedTab) {
+    return
+  }
+
+  handleMobileTabSelect(selectedTab.id)
+}
 
 onMounted(() => {
   if (typeof route.query.quoteId !== 'string') {
@@ -134,6 +205,73 @@ onMounted(() => {
         </div>
       </aside>
 
+      <div class="quote-mobile-nav">
+        <div class="mobile-nav-card">
+          <div class="mobile-nav-header">
+            <div>
+              <span class="section-kicker">Navegação do orçamento</span>
+              <strong>{{ activeTabMeta.label }}</strong>
+              <p>{{ activeTabMeta.description }}</p>
+            </div>
+
+            <div class="mobile-nav-actions">
+              <button type="button" class="outline-button mobile-nav-action-button"
+                :class="{ 'mobile-nav-action-button-active': isMobileQuickNavOpen }"
+                @click="isMobileQuickNavOpen = !isMobileQuickNavOpen">
+                {{ isMobileQuickNavOpen ? 'Ocultar seções' : 'Seções' }}
+              </button>
+              <button type="button" class="outline-button mobile-nav-action-button"
+                :class="{ 'mobile-nav-action-button-active': isMobileSummaryOpen }"
+                @click="isMobileSummaryOpen = !isMobileSummaryOpen">
+                {{ isMobileSummaryOpen ? 'Ocultar resumo' : 'Resumo' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="mobile-nav-select">
+            <label class="field">
+              <span>Ir para a seção</span>
+              <AppSelect :model-value="activeTab" @update:model-value="handleMobileTabDropdownChange">
+                <option v-for="tab in quoteWorkbookTabs" :key="tab.id" :value="tab.id">
+                  {{ tab.label }}
+                </option>
+              </AppSelect>
+            </label>
+          </div>
+
+          <div v-if="isMobileQuickNavOpen" class="mobile-expandable-bar">
+            <div class="mobile-expandable-bar-head">
+              <span class="section-kicker">Atalhos rápidos</span>
+              <button type="button" class="outline-button mobile-collapse-button" @click="isMobileQuickNavOpen = false">
+                Fechar
+              </button>
+            </div>
+            <div class="mobile-nav-grid">
+              <button v-for="tab in quoteWorkbookTabs" :key="tab.id" type="button" class="mobile-tab-button"
+                :class="{ 'mobile-tab-button-active': tab.id === activeTab }" @click="handleMobileTabSelect(tab.id)">
+                <span>{{ tab.label }}</span>
+                <small>{{ tab.description }}</small>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="isMobileSummaryOpen" class="mobile-expandable-bar">
+            <div class="mobile-expandable-bar-head">
+              <span class="section-kicker">Resumo rápido</span>
+              <button type="button" class="outline-button mobile-collapse-button" @click="isMobileSummaryOpen = false">
+                Fechar
+              </button>
+            </div>
+            <div class="mobile-summary-strip">
+              <div v-for="stat in summaryStats" :key="stat.label" class="mobile-summary-pill">
+                <span>{{ stat.label }}</span>
+                <strong>{{ stat.value }}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="quote-content" v-if="isLoadingRecord">
         <div class="panel-card">
           <span class="section-kicker">Carregando</span>
@@ -147,9 +285,30 @@ onMounted(() => {
           <div>
             <span class="section-kicker">Projeto</span>
             <h2>{{ record.project.code }}</h2>
-            <p>Fluxo pensado para reduzir erro operacional e manter o que será enviado consistente entre cliente e equipe.</p>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <AppStatusBadge :tone="summaryStatusTone">
+                {{ summaryStatusLabel }}
+              </AppStatusBadge>
+            </div>
+            <p>Fluxo pensado para reduzir erro operacional e manter o que será enviado consistente entre cliente e
+              equipe.</p>
           </div>
           <div class="top-actions">
+            <NuxtLink
+              v-if="linkedSale"
+              :to="`/gestao/vendas/${linkedSale.id}`"
+              class="outline-button"
+            >
+              Abrir venda
+            </NuxtLink>
+            <button
+              v-else-if="activeQuoteId && quoteStatus === 'pronto'"
+              type="button"
+              class="outline-button"
+              @click="promoteCurrentQuoteToSale"
+            >
+              Marcar como vendido
+            </button>
             <button type="button" class="outline-button" @click="startEmptyQuote">Novo orçamento vazio</button>
             <button type="button" class="primary-button" :disabled="isSavingRecord" @click="saveCurrentQuote">
               {{ isSavingRecord ? 'Salvando...' : 'Salvar orçamento' }}
@@ -157,7 +316,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-if="linkedPreQuoteId || linkedCustomerId" class="panel-card relation-card">
+        <div v-if="linkedPreQuoteId || linkedCustomerId || linkedSale" class="panel-card relation-card">
           <div class="relation-grid">
             <div>
               <span class="section-kicker">Cliente vinculado</span>
@@ -170,10 +329,80 @@ onMounted(() => {
               <strong>{{ linkedPreQuoteCode }}</strong>
               <p>Conversão preservada para rastreabilidade comercial.</p>
             </div>
+
+            <div v-if="linkedSale">
+              <span class="section-kicker">Venda vinculada</span>
+              <div class="flex flex-wrap items-center gap-2">
+                <strong>{{ linkedSale.recordSnapshot.project.code }}</strong>
+                <AppStatusBadge :tone="summaryStatusTone">
+                  {{ summaryStatusLabel }}
+                </AppStatusBadge>
+              </div>
+              <p>Venda registrada em {{ new Date(linkedSale.soldAt).toLocaleDateString('pt-BR') }}.</p>
+            </div>
           </div>
         </div>
 
-        <section v-if="activeTab === 'cliente'" class="panel-card panel-grid">
+        <section v-if="activeTab === 'resumo'" class="panel-stack">
+          <div class="panel-card summary-header-card">
+            <div>
+              <span class="section-kicker">Resumo executivo</span>
+              <h2>Visão rápida do cliente, responsáveis e pedido</h2>
+              <p>Conferência rápida para operação, comercial e acompanhamento do pedido sem precisar navegar por todas
+                as abas.</p>
+            </div>
+
+            <div class="summary-header-metrics">
+              <div v-for="metric in summaryHeroMetrics" :key="metric.label" class="summary-header-pill">
+                <span>{{ metric.label }}</span>
+                <strong>{{ metric.value }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-overview-grid">
+            <article v-for="section in businessSummarySections" :key="section.title"
+              class="preview-block summary-overview-card">
+              <span class="section-kicker">{{ section.title }}</span>
+              <ul class="summary-detail-list">
+                <li v-for="item in section.items" :key="`${section.title}-${item.label}`">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </li>
+              </ul>
+            </article>
+
+            <article class="panel-card totals-card summary-totals-card">
+              <span class="section-kicker">Totais</span>
+              <div class="summary-row">
+                <span>Materiais</span>
+                <strong>{{ formatCurrency(totals.materialSubtotal) }}</strong>
+              </div>
+              <div class="summary-row">
+                <span>Costura</span>
+                <strong>{{ formatCurrency(totals.sewingSubtotal) }}</strong>
+              </div>
+              <div class="summary-row">
+                <span>Instalação</span>
+                <strong>{{ formatCurrency(totals.installationSubtotal) }}</strong>
+              </div>
+              <div class="summary-row">
+                <span>Extras</span>
+                <strong>{{ formatCurrency(totals.extrasSubtotal) }}</strong>
+              </div>
+              <div class="summary-row">
+                <span>Desconto</span>
+                <strong>{{ formatCurrency(totals.discountTotal) }}</strong>
+              </div>
+              <div class="summary-row summary-row-total">
+                <span>Total final</span>
+                <strong>{{ formatCurrency(totals.grandTotal) }}</strong>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section v-else-if="activeTab === 'cliente'" class="panel-card panel-grid">
           <div class="panel-heading">
             <span class="section-kicker">Cliente</span>
             <h2>Dados de contato e endereço</h2>
@@ -187,8 +416,7 @@ onMounted(() => {
             <label class="field" :class="{ 'field-invalid': record.customer.phone && !customerValidation.phoneValid }">
               <span>WhatsApp</span>
               <input :value="record.customer.phone" type="text" inputmode="tel" autocomplete="tel"
-                placeholder="(27) 99999-9999"
-                @input="updateCustomerPhone(($event.target as HTMLInputElement).value)">
+                placeholder="(27) 99999-9999" @input="updateCustomerPhone(($event.target as HTMLInputElement).value)">
               <small v-if="record.customer.phone && !customerValidation.phoneValid" class="field-hint field-hint-error">
                 Informe um telefone com DDD.
               </small>
@@ -210,7 +438,8 @@ onMounted(() => {
             </label>
             <label class="field">
               <span>Bairro</span>
-              <input v-model="record.customer.neighborhood" type="text" autocomplete="address-level3" placeholder="Bairro">
+              <input v-model="record.customer.neighborhood" type="text" autocomplete="address-level3"
+                placeholder="Bairro">
             </label>
             <label class="field">
               <span>Cidade</span>
@@ -224,19 +453,22 @@ onMounted(() => {
               <input :value="record.customer.state" type="text" maxlength="2" autocomplete="address-level1"
                 placeholder="ES" @input="updateCustomerState(($event.target as HTMLInputElement).value)">
             </label>
-            <label class="field field-cep" :class="{ 'field-invalid': zipcodeLookupError || (record.customer.zipcode && !customerValidation.zipcodeValid) }">
+            <label class="field field-cep"
+              :class="{ 'field-invalid': zipcodeLookupError || (record.customer.zipcode && !customerValidation.zipcodeValid) }">
               <span>CEP</span>
               <div class="field-inline">
                 <input :value="record.customer.zipcode" type="text" inputmode="numeric" autocomplete="postal-code"
                   placeholder="00000-000" @input="updateCustomerZipcode(($event.target as HTMLInputElement).value)"
                   @blur="lookupCustomerZipcode(true)">
-                <button type="button" class="inline-button" :disabled="isResolvingZipcode || !canLookupZipcode" @click="lookupCustomerZipcode(true)">
+                <button type="button" class="inline-button" :disabled="isResolvingZipcode || !canLookupZipcode"
+                  @click="lookupCustomerZipcode(true)">
                   {{ isResolvingZipcode ? 'Buscando...' : 'Buscar CEP' }}
                 </button>
               </div>
               <small v-if="zipcodeLookupError" class="field-hint field-hint-error">{{ zipcodeLookupError }}</small>
               <small v-else-if="isResolvingZipcode" class="field-hint">Consultando endereço...</small>
-              <small v-else-if="record.customer.zipcode && !customerValidation.zipcodeValid" class="field-hint field-hint-error">
+              <small v-else-if="record.customer.zipcode && !customerValidation.zipcodeValid"
+                class="field-hint field-hint-error">
                 Use um CEP com 8 dígitos.
               </small>
               <small v-else-if="record.customer.city && record.customer.state" class="field-hint">
@@ -275,22 +507,22 @@ onMounted(() => {
             </label>
             <label class="field">
               <span>Status</span>
-              <select v-model="quoteStatus">
-                <option value="rascunho">Rascunho</option>
-                <option value="pronto">Pronto</option>
+              <select v-model="quoteStatus" :disabled="Boolean(linkedSale)">
+                <option value="rascunho">Orçamento</option>
+                <option value="pronto">Orçamento concluído</option>
                 <option value="cancelado">Cancelado</option>
               </select>
             </label>
           </div>
 
+          <p v-if="linkedSale" class="text-sm leading-6 text-muted/78">
+            Este orçamento já foi convertido em {{ summaryStatusLabel.toLowerCase() }}. O estágio comercial passa a ser controlado pela aba de vendas.
+          </p>
+
           <div class="fields-grid fields-grid-3">
             <label class="field">
               <span>Prazo de entrega</span>
               <input v-model="record.project.deliveryLeadTime" type="text" placeholder="20 dias">
-            </label>
-            <label class="field">
-              <span>Data de instalação / entrega</span>
-              <input v-model="record.project.installationDate" type="date">
             </label>
             <label class="field">
               <span>Instalação</span>
@@ -325,7 +557,11 @@ onMounted(() => {
             </label>
           </div>
 
-          <div class="fields-grid fields-grid-2">
+          <div class="fields-grid fields-grid-3">
+            <label class="field">
+              <span>Forma de pagamento</span>
+              <input v-model="record.project.paymentMethod" type="text" placeholder="Pix, cartão, boleto, a combinar">
+            </label>
             <label class="field">
               <span>Condição de pagamento</span>
               <textarea v-model="record.project.paymentTerms" rows="4" />
@@ -342,24 +578,20 @@ onMounted(() => {
             <div>
               <span class="section-kicker">Memória de cálculo</span>
               <h2>Ambientes e composição técnica</h2>
-              <p>Preencha cada ambiente no formato da planilha: trilho, blackout, tecido, pregas, instalação, medidas e valores.</p>
+              <p>Preencha cada ambiente no formato da planilha: trilho, blackout, tecido, pregas, instalação, medidas e
+                valores.</p>
+              <p class="field-hint">
+                O tecido escolhido pelo cliente é apenas referência comercial. A baixa real de estoque acontece no bloco
+                de tecido da costureira dentro de cada item.
+              </p>
             </div>
             <button type="button" class="primary-button" @click="addItem">Adicionar item</button>
           </div>
 
-          <AdminQuoteItemCard
-            v-for="(item, index) in record.items"
-            :key="item.id"
-            :item="item"
-            :index="index"
-            :disable-remove="record.items.length === 1"
-            :fabrics="activeFabrics"
-            :fabric-price-by-id="fabricPriceById"
-            :stock-by-fabric-id="stockByFabricId"
-            :seamstress-selected="Boolean(selectedSeamstressId)"
-            @duplicate="duplicateItem(item)"
-            @remove="removeItem(item.id)"
-          />
+          <AdminQuoteItemCard v-for="(item, index) in record.items" :key="item.id" :item="item" :index="index"
+            :disable-remove="record.items.length === 1" :fabrics="activeFabrics" :fabric-price-by-id="fabricPriceById"
+            :stock-by-fabric-id="stockByFabricId" :seamstress-selected="Boolean(selectedSeamstressId)"
+            @duplicate="duplicateItem(item)" @remove="removeItem(item.id)" />
 
           <div class="panel-card totals-card">
             <div class="summary-row">
@@ -411,13 +643,15 @@ onMounted(() => {
             </label>
             <label class="field">
               <span>WhatsApp</span>
-              <input :value="record.seamstress.whatsapp" type="text" inputmode="tel" placeholder="(27) 99999-9999" readonly>
+              <input :value="record.seamstress.whatsapp" type="text" inputmode="tel" placeholder="(27) 99999-9999"
+                readonly>
             </label>
           </div>
 
           <label class="field">
             <span>Observações para costura</span>
-            <textarea v-model="record.seamstress.notes" rows="5" placeholder="Recados de produção, prioridade, acabamento, emendas..." />
+            <textarea v-model="record.seamstress.notes" rows="5"
+              placeholder="Recados de produção, prioridade, acabamento, emendas..." />
           </label>
 
           <div class="preview-block">
@@ -431,7 +665,8 @@ onMounted(() => {
             <span class="section-kicker">Saldo rápido</span>
             <ul v-if="stockBalances.length">
               <li v-for="balance in stockBalances.slice(0, 6)" :key="balance.id">
-                {{ balance.fabric.name }}<span v-if="balance.fabric.colorOrCollection"> • {{ balance.fabric.colorOrCollection }}</span>
+                {{ balance.fabric.name }}<span v-if="balance.fabric.colorOrCollection"> • {{
+                  balance.fabric.colorOrCollection }}</span>
                 : {{ balance.balanceMeters.toFixed(2) }} m
               </li>
             </ul>
@@ -461,13 +696,19 @@ onMounted(() => {
             </label>
             <label class="field">
               <span>WhatsApp</span>
-              <input :value="record.installer.whatsapp" type="text" inputmode="tel" placeholder="(27) 99999-9999" readonly>
+              <input :value="record.installer.whatsapp" type="text" inputmode="tel" placeholder="(27) 99999-9999"
+                readonly>
+            </label>
+            <label class="field">
+              <span>Data de instalação / entrega</span>
+              <input v-model="record.project.installationDate" type="date">
             </label>
           </div>
 
           <label class="field">
             <span>Observações para instalação</span>
-            <textarea v-model="record.installer.notes" rows="5" placeholder="Altura de trilho, acesso, andaime, elétrica, restrições de obra..." />
+            <textarea v-model="record.installer.notes" rows="5"
+              placeholder="Altura de trilho, acesso, andaime, elétrica, restrições de obra..." />
           </label>
 
           <div class="relation-grid">
@@ -505,7 +746,8 @@ onMounted(() => {
             <span class="section-kicker">Histórico de envio</span>
             <ul v-if="installerDispatches.length">
               <li v-for="dispatch in installerDispatches.slice(0, 6)" :key="dispatch.id">
-                {{ new Date(dispatch.createdAt).toLocaleString('pt-BR') }} • {{ dispatch.channel }} • {{ dispatch.status }}
+                {{ new Date(dispatch.createdAt).toLocaleString('pt-BR') }} • {{ dispatch.channel }} • {{ dispatch.status
+                }}
                 <span v-if="dispatch.errorMessage"> • {{ dispatch.errorMessage }}</span>
               </li>
             </ul>
@@ -540,23 +782,15 @@ onMounted(() => {
             </p>
           </div>
 
-          <AdminDocumentCard
-            v-for="document in documentEntries"
-            :key="document.kind"
-            :title="document.title"
+          <AdminDocumentCard v-for="document in documentEntries" :key="document.kind" :title="document.title"
             :description="document.summary.lines[0] || 'Documento pronto para revisão.'"
-            :preview-lines="document.summary.lines.slice(1, 6)"
-            :recipient-email="document.email"
-            :recipient-whatsapp="document.whatsapp"
-            :can-send="document.ready"
+            :preview-lines="document.summary.lines.slice(1, 6)" :recipient-email="document.email"
+            :recipient-whatsapp="document.whatsapp" :can-send="document.ready"
             :email-disabled-reason="document.emailDisabledReason"
             :whatsapp-disabled-reason="document.whatsappDisabledReason"
-            :sending-email="sending[`${document.kind}-email`]"
-            :sending-whats-app="sending[`${document.kind}-whatsapp`]"
-            @download="downloadPdf(document.kind)"
-            @send-email="handleDocumentDelivery(document.kind, 'email')"
-            @send-whatsapp="handleDocumentDelivery(document.kind, 'whatsapp')"
-          />
+            :sending-email="sending[`${document.kind}-email`]" :sending-whats-app="sending[`${document.kind}-whatsapp`]"
+            @download="downloadPdf(document.kind)" @send-email="handleDocumentDelivery(document.kind, 'email')"
+            @send-whatsapp="handleDocumentDelivery(document.kind, 'whatsapp')" />
         </section>
       </div>
     </div>
@@ -581,6 +815,10 @@ onMounted(() => {
   align-self: start;
   position: sticky;
   top: 96px;
+}
+
+.quote-mobile-nav {
+  display: none;
 }
 
 .sidebar-card,
@@ -654,6 +892,140 @@ onMounted(() => {
   padding-top: 10px;
   border-top: 1px solid rgba(197, 160, 89, 0.14);
   font-size: 1.06rem;
+}
+
+.mobile-nav-card {
+  padding: 18px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(197, 160, 89, 0.16);
+  box-shadow: 0 18px 44px rgba(22, 22, 22, 0.08);
+  display: grid;
+  gap: 14px;
+}
+
+.mobile-nav-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.mobile-nav-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mobile-nav-header strong {
+  display: block;
+  color: var(--text-dark);
+  font-size: 1.08rem;
+  line-height: 1.2;
+}
+
+.mobile-nav-header p,
+.mobile-nav-select {
+  color: rgba(61, 61, 61, 0.78);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.mobile-nav-action-button {
+  min-width: 104px;
+}
+
+.mobile-nav-action-button-active {
+  border-color: rgba(197, 160, 89, 0.38);
+  background: rgba(247, 239, 226, 0.9);
+}
+
+.mobile-expandable-bar {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(247, 239, 226, 0.74);
+  border: 1px solid rgba(197, 160, 89, 0.14);
+}
+
+.mobile-expandable-bar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-tab-button {
+  min-height: 64px;
+  padding: 12px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(26, 26, 26, 0.1);
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(61, 61, 61, 0.82);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.mobile-tab-button-active {
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--white);
+}
+
+.mobile-tab-button small {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  font-weight: 500;
+  opacity: 0.82;
+}
+
+.mobile-nav-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.mobile-summary-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.mobile-summary-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-summary-pill {
+  min-width: 132px;
+  padding: 12px 14px;
+  background: rgba(247, 239, 226, 0.88);
+  border: 1px solid rgba(197, 160, 89, 0.14);
+  display: grid;
+  gap: 4px;
+}
+
+.mobile-summary-pill span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(61, 61, 61, 0.62);
+}
+
+.mobile-summary-pill strong {
+  color: var(--text-dark);
+  font-size: 0.96rem;
+}
+
+.mobile-collapse-button {
+  min-height: 40px;
+  padding-inline: 14px;
 }
 
 .quote-content,
@@ -839,6 +1211,91 @@ onMounted(() => {
   border: 1px solid rgba(197, 160, 89, 0.12);
 }
 
+.summary-header-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.summary-header-metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.summary-header-pill {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: rgba(247, 239, 226, 0.78);
+  border: 1px solid rgba(197, 160, 89, 0.12);
+}
+
+.summary-header-pill span {
+  color: rgba(61, 61, 61, 0.62);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.summary-header-pill strong {
+  color: var(--text-dark);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.summary-overview-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.summary-overview-card {
+  display: grid;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.summary-detail-list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.summary-detail-list li {
+  display: grid;
+  gap: 4px;
+}
+
+.summary-detail-list li + li {
+  padding-top: 12px;
+  border-top: 1px solid rgba(197, 160, 89, 0.12);
+}
+
+.summary-detail-list span {
+  color: rgba(61, 61, 61, 0.62);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.summary-detail-list strong {
+  color: var(--text-dark);
+  font-size: 0.96rem;
+  line-height: 1.45;
+}
+
+.summary-totals-card {
+  grid-column: 1 / -1;
+}
+
 .preview-block ul {
   display: grid;
   gap: 8px;
@@ -882,7 +1339,14 @@ onMounted(() => {
   }
 
   .quote-sidebar {
-    position: static;
+    display: none;
+  }
+
+  .quote-mobile-nav {
+    display: block;
+    position: sticky;
+    top: 96px;
+    z-index: 25;
   }
 
   .panel-card-top {
@@ -894,6 +1358,10 @@ onMounted(() => {
     align-items: flex-start;
   }
 
+  .summary-header-card {
+    grid-template-columns: 1fr;
+  }
+
   .top-actions {
     width: 100%;
     justify-content: flex-start;
@@ -901,6 +1369,15 @@ onMounted(() => {
 }
 
 @media (max-width: 900px) {
+  .summary-overview-grid,
+  .summary-header-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-totals-card {
+    grid-column: auto;
+  }
+
   .fields-grid-2,
   .fields-grid-3,
   .fields-grid-4,
@@ -938,6 +1415,16 @@ onMounted(() => {
   .primary-button,
   .outline-button,
   .inline-button {
+    width: 100%;
+  }
+
+  .mobile-nav-header {
+    flex-direction: column;
+  }
+
+  .mobile-nav-actions,
+  .mobile-nav-action-button,
+  .mobile-collapse-button {
     width: 100%;
   }
 }
