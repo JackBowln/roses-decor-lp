@@ -5,6 +5,7 @@ import {
   buildPreQuoteList,
   createAdminQuoteFromPreQuote,
   createFinalQuoteRecord,
+  createSaleRecordFromFinalQuote,
   createWorkspaceStore,
   createPreQuoteRecord,
   syncCustomerFromFinalQuote,
@@ -18,10 +19,16 @@ import {
   type PreQuoteStatus,
   type PublicPreQuoteContact,
   type PreQuoteItemRecord,
+  type QuoteStageTransitionRecord,
   type QuoteWorkspaceStore,
+  type SaleListItem,
+  type SaleRecord,
+  type SalesDashboardMetrics,
+  type SalesDashboardRange,
   type StoredFinalQuote,
 } from '~~/app/lib/quoteWorkspace'
-import type { AdminQuoteRecord } from '~~/app/lib/adminQuote'
+import { normalizeAdminQuoteRecord, type AdminQuoteRecord } from '~~/app/lib/adminQuote'
+import { buildSaleListItem, buildSalesDashboardMetrics } from '~~/app/lib/sales'
 
 const DATA_ROOT = join(process.cwd(), '.data', 'roses-decor')
 const STORE_PATH = join(DATA_ROOT, 'workspace.json')
@@ -88,8 +95,11 @@ export const readQuoteWorkspaceStore = async (): Promise<QuoteWorkspaceStore> =>
       customers: Array.isArray(parsed.customers) ? parsed.customers : [],
       preQuotes: Array.isArray(parsed.preQuotes) ? parsed.preQuotes : [],
       finalQuotes: Array.isArray(parsed.finalQuotes) ? parsed.finalQuotes : [],
+      sales: Array.isArray(parsed.sales) ? parsed.sales : [],
+      seamstresses: Array.isArray(parsed.seamstresses) ? parsed.seamstresses : [],
       installers: Array.isArray(parsed.installers) ? parsed.installers : [],
       installerDispatches: Array.isArray(parsed.installerDispatches) ? parsed.installerDispatches : [],
+      quoteStageTransitions: Array.isArray(parsed.quoteStageTransitions) ? parsed.quoteStageTransitions : [],
     }
   }
   catch {
@@ -176,10 +186,13 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
 
   return {
     ...finalQuote,
+    record: normalizeAdminQuoteRecord(finalQuote.record),
     customer: store.customers.find((entry) => entry.id === finalQuote.customerId) || null,
     preQuote: finalQuote.preQuoteId ? store.preQuotes.find((entry) => entry.id === finalQuote.preQuoteId) || null : null,
     seamstress: null,
     installer: finalQuote.installerId ? store.installers.find((entry) => entry.id === finalQuote.installerId) || null : null,
+    sale: store.sales.find((entry) => entry.quoteId === finalQuote.id) || null,
+    stageTransitions: store.quoteStageTransitions.filter((entry) => entry.quoteId === finalQuote.id),
     fabricConsumptions: [],
     installerDispatches: store.installerDispatches.filter((entry) => entry.quoteId === finalQuote.id),
   }
@@ -412,3 +425,131 @@ export const createInstallerDispatch = async (input: Omit<InstallerDispatchRecor
     store.installerDispatches.unshift(created)
     return created
   })
+
+const mapSaleListItem = (store: QuoteWorkspaceStore, sale: SaleRecord): SaleListItem => {
+  const normalizedSnapshot = normalizeAdminQuoteRecord(sale.recordSnapshot)
+  const customer = store.customers.find((entry) => entry.id === sale.customerId)
+  const preQuote = sale.preQuoteId ? store.preQuotes.find((entry) => entry.id === sale.preQuoteId) : null
+  const installer = sale.installerId ? store.installers.find((entry) => entry.id === sale.installerId) : null
+
+  return buildSaleListItem({
+    sale: {
+      ...sale,
+      recordSnapshot: normalizedSnapshot,
+    },
+    customer: {
+      id: customer?.id || sale.customerId,
+      name: customer?.name || normalizedSnapshot.customer.name || 'Cliente não encontrado',
+      whatsapp: customer?.whatsapp || normalizedSnapshot.customer.phone || '',
+      email: customer?.email || normalizedSnapshot.customer.email || '',
+      locationLabel: customer?.locationLabel || normalizedSnapshot.customer.city || '',
+      city: customer?.city || normalizedSnapshot.customer.city || '',
+      state: customer?.state || normalizedSnapshot.customer.state || '',
+    },
+    preQuoteCode: preQuote?.code || null,
+    seamstressName: normalizedSnapshot.seamstress.name,
+    installerName: installer?.name || normalizedSnapshot.installer.name,
+  })
+}
+
+export const listSales = async (): Promise<SaleListItem[]> => {
+  const store = await readQuoteWorkspaceStore()
+  return store.sales.map((sale) => mapSaleListItem(store, sale))
+}
+
+export const findSaleById = async (id: string) => {
+  const store = await readQuoteWorkspaceStore()
+  const sale = store.sales.find((entry) => entry.id === id) || null
+
+  if (!sale) {
+    return null
+  }
+
+  const quote = await findFinalQuoteById(sale.quoteId)
+
+  return {
+    sale: mapSaleListItem(store, sale),
+    quote,
+    customer: store.customers.find((entry) => entry.id === sale.customerId) || null,
+    preQuote: sale.preQuoteId ? store.preQuotes.find((entry) => entry.id === sale.preQuoteId) || null : null,
+    seamstress: null,
+    installer: sale.installerId ? store.installers.find((entry) => entry.id === sale.installerId) || null : null,
+    stageTransitions: store.quoteStageTransitions.filter((entry) => entry.quoteId === sale.quoteId),
+  }
+}
+
+export const transitionSaleStatus = async (input: {
+  quoteId: string
+  status: SaleRecord['status']
+  changedBy?: string
+}) => mutateStore(async (store) => {
+  const quote = store.finalQuotes.find((entry) => entry.id === input.quoteId)
+
+  if (!quote) {
+    throw new Error('Orçamento final não encontrado.')
+  }
+
+  const now = new Date().toISOString()
+  const existingSale = store.sales.find((entry) => entry.quoteId === input.quoteId) || null
+  const changedBy = input.changedBy?.trim() || 'admin'
+  const transitionId = `qst_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+
+  if (input.status === 'vendido') {
+    if (quote.status !== 'pronto') {
+      throw new Error('A venda só pode ser criada a partir de um orçamento concluído.')
+    }
+
+    if (existingSale) {
+      return existingSale
+    }
+
+    const createdSale = createSaleRecordFromFinalQuote({
+      quote,
+      soldAt: now,
+    })
+
+    store.sales.unshift(createdSale)
+    store.quoteStageTransitions.unshift({
+      id: transitionId,
+      quoteId: quote.id,
+      fromStage: quote.status,
+      toStage: 'vendido',
+      changedAt: now,
+      changedBy,
+    })
+
+    return createdSale
+  }
+
+  if (!existingSale) {
+    throw new Error('Venda não encontrada para este orçamento.')
+  }
+
+  if (existingSale.status !== 'vendido') {
+    throw new Error('Apenas vendas marcadas como vendido podem ser alteradas para pago.')
+  }
+
+  existingSale.status = 'pago'
+  existingSale.paidAt = now
+  existingSale.updatedAt = now
+  store.quoteStageTransitions.unshift({
+    id: transitionId,
+    quoteId: quote.id,
+    fromStage: 'vendido',
+    toStage: 'pago',
+    changedAt: now,
+    changedBy,
+  })
+
+  return existingSale
+})
+
+export const fetchSalesDashboard = async (range: SalesDashboardRange): Promise<SalesDashboardMetrics> => {
+  const store = await readQuoteWorkspaceStore()
+  const sales = store.sales.map((sale) => mapSaleListItem(store, sale))
+  return buildSalesDashboardMetrics({
+    sales,
+    transitions: store.quoteStageTransitions as QuoteStageTransitionRecord[],
+    range,
+  })
+}

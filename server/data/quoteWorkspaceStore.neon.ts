@@ -10,6 +10,7 @@ import {
   createAdminQuoteFromPreQuote,
   createFinalQuoteRecord,
   createPreQuoteRecord,
+  createSaleRecordFromFinalQuote,
   createStoredFinalQuoteCode,
   createWorkspaceId,
   hydrateQuoteRecordWithFabricConsumptions,
@@ -29,10 +30,15 @@ import {
   type PreQuoteListItem,
   type PreQuoteStatus,
   type QuoteFabricConsumptionRecord,
+  type QuoteStageTransitionRecord,
   type PublicPreQuoteContact,
   type PreQuoteItemRecord,
   type PreQuoteRecord,
   type QuoteWorkspaceStore,
+  type SaleListItem,
+  type SaleRecord,
+  type SalesDashboardMetrics,
+  type SalesDashboardRange,
   type SeamstressFabricStockRecord,
   type SeamstressRecord,
   type SeamstressStatus,
@@ -42,7 +48,8 @@ import {
   type StockMovementType,
   type StoredFinalQuote,
 } from '~~/app/lib/quoteWorkspace'
-import { normalizePhone, resolveInstallationMeters, type AdminQuoteRecord } from '~~/app/lib/adminQuote'
+import { normalizeAdminQuoteRecord, normalizePhone, resolveInstallationMeters, type AdminQuoteRecord } from '~~/app/lib/adminQuote'
+import { buildSaleListItem, buildSalesDashboardMetrics } from '~~/app/lib/sales'
 
 export interface WorkspaceDocumentPayload {
   bytes: Uint8Array
@@ -92,6 +99,30 @@ interface FinalQuoteRow {
   record_json: unknown
   created_at: string | Date
   updated_at: string | Date
+}
+
+interface SaleRow {
+  id: string
+  quote_id: string
+  customer_id: string
+  pre_quote_id: string | null
+  seamstress_id: string | null
+  installer_id: string | null
+  status: SaleRecord['status']
+  record_snapshot_json: unknown
+  sold_at: string | Date
+  paid_at: string | Date | null
+  created_at: string | Date
+  updated_at: string | Date
+}
+
+interface QuoteStageTransitionRow {
+  id: string
+  quote_id: string
+  from_stage: string
+  to_stage: string
+  changed_at: string | Date
+  changed_by: string
 }
 
 interface SeamstressRow {
@@ -415,9 +446,33 @@ const mapFinalQuoteRow = (row: FinalQuoteRow): StoredFinalQuote => ({
   seamstressId: row.seamstress_id,
   installerId: row.installer_id,
   status: row.status,
-  record: parseJsonColumn<AdminQuoteRecord>(row.record_json),
+  record: normalizeAdminQuoteRecord(parseJsonColumn<AdminQuoteRecord>(row.record_json)),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
+})
+
+const mapSaleRow = (row: SaleRow): SaleRecord => ({
+  id: row.id,
+  quoteId: row.quote_id,
+  customerId: row.customer_id,
+  preQuoteId: row.pre_quote_id,
+  seamstressId: row.seamstress_id,
+  installerId: row.installer_id,
+  status: row.status,
+  recordSnapshot: normalizeAdminQuoteRecord(parseJsonColumn<AdminQuoteRecord>(row.record_snapshot_json)),
+  soldAt: toIso(row.sold_at),
+  paidAt: row.paid_at ? toIso(row.paid_at) : null,
+  createdAt: toIso(row.created_at),
+  updatedAt: toIso(row.updated_at),
+})
+
+const mapQuoteStageTransitionRow = (row: QuoteStageTransitionRow): QuoteStageTransitionRecord => ({
+  id: row.id,
+  quoteId: row.quote_id,
+  fromStage: row.from_stage,
+  toStage: row.to_stage,
+  changedAt: toIso(row.changed_at),
+  changedBy: row.changed_by,
 })
 
 const mapSeamstressRow = (row: SeamstressRow): SeamstressRecord => ({
@@ -619,6 +674,34 @@ const ensureSchema = async () => {
       await sql`ALTER TABLE quote_workspace_final_quotes ADD COLUMN IF NOT EXISTS installer_id TEXT NULL`
 
       await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_sales (
+          id TEXT PRIMARY KEY,
+          quote_id TEXT NOT NULL UNIQUE REFERENCES quote_workspace_final_quotes (id) ON DELETE CASCADE,
+          customer_id TEXT NOT NULL REFERENCES quote_workspace_customers (id),
+          pre_quote_id TEXT NULL REFERENCES quote_workspace_pre_quotes (id),
+          seamstress_id TEXT NULL,
+          installer_id TEXT NULL,
+          status TEXT NOT NULL,
+          record_snapshot_json JSONB NOT NULL,
+          sold_at TIMESTAMPTZ NOT NULL,
+          paid_at TIMESTAMPTZ NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        )
+      `
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS quote_workspace_quote_stage_transitions (
+          id TEXT PRIMARY KEY,
+          quote_id TEXT NOT NULL REFERENCES quote_workspace_final_quotes (id) ON DELETE CASCADE,
+          from_stage TEXT NOT NULL DEFAULT '',
+          to_stage TEXT NOT NULL,
+          changed_at TIMESTAMPTZ NOT NULL,
+          changed_by TEXT NOT NULL DEFAULT 'admin'
+        )
+      `
+
+      await sql`
         CREATE TABLE IF NOT EXISTS quote_workspace_seamstresses (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -669,6 +752,36 @@ const ensureSchema = async () => {
           ) THEN
             ALTER TABLE quote_workspace_final_quotes
             ADD CONSTRAINT quote_workspace_final_quotes_installer_id_fkey
+            FOREIGN KEY (installer_id) REFERENCES quote_workspace_installers (id);
+          END IF;
+        END $$;
+      `
+
+      await sql`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.table_constraints
+            WHERE constraint_name = 'quote_workspace_sales_seamstress_id_fkey'
+          ) THEN
+            ALTER TABLE quote_workspace_sales
+            ADD CONSTRAINT quote_workspace_sales_seamstress_id_fkey
+            FOREIGN KEY (seamstress_id) REFERENCES quote_workspace_seamstresses (id);
+          END IF;
+        END $$;
+      `
+
+      await sql`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.table_constraints
+            WHERE constraint_name = 'quote_workspace_sales_installer_id_fkey'
+          ) THEN
+            ALTER TABLE quote_workspace_sales
+            ADD CONSTRAINT quote_workspace_sales_installer_id_fkey
             FOREIGN KEY (installer_id) REFERENCES quote_workspace_installers (id);
           END IF;
         END $$;
@@ -753,6 +866,15 @@ const ensureSchema = async () => {
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_pre_quote_idx ON quote_workspace_final_quotes (pre_quote_id)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_seamstress_idx ON quote_workspace_final_quotes (seamstress_id, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_final_quotes_installer_idx ON quote_workspace_final_quotes (installer_id, created_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_sales_customer_idx ON quote_workspace_sales (customer_id, sold_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_sales_quote_idx ON quote_workspace_sales (quote_id)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_sales_status_idx ON quote_workspace_sales (status, sold_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_sales_seamstress_idx ON quote_workspace_sales (seamstress_id, sold_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_sales_installer_idx ON quote_workspace_sales (installer_id, sold_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_sales_paid_idx ON quote_workspace_sales (paid_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_stage_transitions_quote_idx ON quote_workspace_quote_stage_transitions (quote_id, changed_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_stage_transitions_to_stage_idx ON quote_workspace_quote_stage_transitions (to_stage, changed_at DESC)`
+      await sql`CREATE INDEX IF NOT EXISTS quote_workspace_quote_stage_transitions_changed_idx ON quote_workspace_quote_stage_transitions (changed_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_seamstresses_status_idx ON quote_workspace_seamstresses (status, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_installers_status_idx ON quote_workspace_installers (status, created_at DESC)`
       await sql`CREATE INDEX IF NOT EXISTS quote_workspace_fabrics_status_idx ON quote_workspace_fabrics (status, created_at DESC)`
@@ -787,12 +909,15 @@ const serializeWrite = async <T>(task: () => Promise<T>) => {
 const readQuoteWorkspaceStore = async (): Promise<QuoteWorkspaceStore> => {
   await ensureSchema()
   const sql = getSql()
-  const [customerRows, preQuoteRows, finalQuoteRows, installerRows, installerDispatchRows] = await sql.transaction([
+  const [customerRows, preQuoteRows, finalQuoteRows, saleRows, seamstressRows, installerRows, installerDispatchRows, transitionRows] = await sql.transaction([
     sql`SELECT * FROM quote_workspace_customers ORDER BY created_at DESC`,
     sql`SELECT * FROM quote_workspace_pre_quotes ORDER BY created_at DESC`,
     sql`SELECT * FROM quote_workspace_final_quotes ORDER BY created_at DESC`,
+    sql`SELECT * FROM quote_workspace_sales ORDER BY sold_at DESC`,
+    sql`SELECT * FROM quote_workspace_seamstresses ORDER BY name ASC`,
     sql`SELECT * FROM quote_workspace_installers ORDER BY name ASC`,
     sql`SELECT * FROM quote_workspace_installer_dispatches ORDER BY created_at DESC`,
+    sql`SELECT * FROM quote_workspace_quote_stage_transitions ORDER BY changed_at DESC`,
   ], {
     readOnly: true,
   })
@@ -801,9 +926,34 @@ const readQuoteWorkspaceStore = async (): Promise<QuoteWorkspaceStore> => {
     customers: (customerRows as CustomerRow[]).map(mapCustomerRow),
     preQuotes: (preQuoteRows as PreQuoteRow[]).map(mapPreQuoteRow),
     finalQuotes: (finalQuoteRows as FinalQuoteRow[]).map(mapFinalQuoteRow),
+    sales: (saleRows as SaleRow[]).map(mapSaleRow),
+    seamstresses: (seamstressRows as SeamstressRow[]).map(mapSeamstressRow),
     installers: (installerRows as InstallerRow[]).map(mapInstallerRow),
     installerDispatches: (installerDispatchRows as InstallerDispatchRow[]).map(mapInstallerDispatchRow),
+    quoteStageTransitions: (transitionRows as QuoteStageTransitionRow[]).map(mapQuoteStageTransitionRow),
   }
+}
+
+const mapSaleListItemFromStore = (store: QuoteWorkspaceStore, sale: SaleRecord): SaleListItem => {
+  const customer = store.customers.find((entry) => entry.id === sale.customerId)
+  const preQuote = sale.preQuoteId ? store.preQuotes.find((entry) => entry.id === sale.preQuoteId) : null
+  const installer = sale.installerId ? store.installers.find((entry) => entry.id === sale.installerId) : null
+
+  return buildSaleListItem({
+    sale,
+    customer: {
+      id: customer?.id || sale.customerId,
+      name: customer?.name || sale.recordSnapshot.customer.name || 'Cliente não encontrado',
+      whatsapp: customer?.whatsapp || sale.recordSnapshot.customer.phone || '',
+      email: customer?.email || sale.recordSnapshot.customer.email || '',
+      locationLabel: customer?.locationLabel || sale.recordSnapshot.customer.city || '',
+      city: customer?.city || sale.recordSnapshot.customer.city || '',
+      state: customer?.state || sale.recordSnapshot.customer.state || '',
+    },
+    preQuoteCode: preQuote?.code || null,
+    seamstressName: sale.recordSnapshot.seamstress.name,
+    installerName: installer?.name || sale.recordSnapshot.installer.name,
+  })
 }
 
 const readQuoteFabricConsumptionsByQuoteId = async (quoteId: string) => {
@@ -1005,6 +1155,109 @@ const upsertFinalQuoteRecordWithClient = async (client: PoolClient, finalQuote: 
   )
 
   return mapFinalQuoteRow(result.rows[0])
+}
+
+const fetchSaleByQuoteIdWithClient = async (client: PoolClient, quoteId: string) => {
+  const result = await client.query<SaleRow>(
+    'SELECT * FROM quote_workspace_sales WHERE quote_id = $1 FOR UPDATE',
+    [quoteId],
+  )
+
+  return result.rows[0] ? mapSaleRow(result.rows[0]) : null
+}
+
+const fetchSaleByIdWithClient = async (client: PoolClient, saleId: string) => {
+  const result = await client.query<SaleRow>(
+    'SELECT * FROM quote_workspace_sales WHERE id = $1 FOR UPDATE',
+    [saleId],
+  )
+
+  return result.rows[0] ? mapSaleRow(result.rows[0]) : null
+}
+
+const upsertSaleWithClient = async (client: PoolClient, sale: SaleRecord) => {
+  const result = await client.query<SaleRow>(
+    `
+      INSERT INTO quote_workspace_sales (
+        id,
+        quote_id,
+        customer_id,
+        pre_quote_id,
+        seamstress_id,
+        installer_id,
+        status,
+        record_snapshot_json,
+        sold_at,
+        paid_at,
+        created_at,
+        updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12::timestamptz
+      )
+      ON CONFLICT (id) DO UPDATE
+      SET
+        customer_id = EXCLUDED.customer_id,
+        pre_quote_id = EXCLUDED.pre_quote_id,
+        seamstress_id = EXCLUDED.seamstress_id,
+        installer_id = EXCLUDED.installer_id,
+        status = EXCLUDED.status,
+        record_snapshot_json = EXCLUDED.record_snapshot_json,
+        sold_at = EXCLUDED.sold_at,
+        paid_at = EXCLUDED.paid_at,
+        updated_at = EXCLUDED.updated_at
+      RETURNING *
+    `,
+    [
+      sale.id,
+      sale.quoteId,
+      sale.customerId,
+      sale.preQuoteId,
+      sale.seamstressId,
+      sale.installerId,
+      sale.status,
+      JSON.stringify(sale.recordSnapshot),
+      sale.soldAt,
+      sale.paidAt,
+      sale.createdAt,
+      sale.updatedAt,
+    ],
+  )
+
+  return mapSaleRow(result.rows[0])
+}
+
+const insertQuoteStageTransitionWithClient = async (
+  client: PoolClient,
+  input: {
+    quoteId: string
+    fromStage: string
+    toStage: string
+    changedAt: string
+    changedBy?: string
+  },
+) => {
+  await client.query(
+    `
+      INSERT INTO quote_workspace_quote_stage_transitions (
+        id,
+        quote_id,
+        from_stage,
+        to_stage,
+        changed_at,
+        changed_by
+      ) VALUES (
+        $1, $2, $3, $4, $5::timestamptz, $6
+      )
+    `,
+    [
+      createWorkspaceId('qst'),
+      input.quoteId,
+      input.fromStage,
+      input.toStage,
+      input.changedAt,
+      input.changedBy || 'admin',
+    ],
+  )
 }
 
 const updateLinkedPreQuoteWithClient = async (
@@ -1502,7 +1755,7 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
   }
 
   const finalQuote = mapFinalQuoteRow(finalQuoteRow as FinalQuoteRow)
-  const [customerRows, preQuoteRows, seamstressRows, installerRows, consumptionRows, dispatchRows] = await sql.transaction([
+  const [customerRows, preQuoteRows, seamstressRows, installerRows, consumptionRows, dispatchRows, saleRows, transitionRows] = await sql.transaction([
     sql`SELECT * FROM quote_workspace_customers WHERE id = ${finalQuote.customerId} LIMIT 1`,
     finalQuote.preQuoteId
       ? sql`SELECT * FROM quote_workspace_pre_quotes WHERE id = ${finalQuote.preQuoteId} LIMIT 1`
@@ -1515,6 +1768,8 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
       : sql`SELECT * FROM quote_workspace_installers WHERE FALSE`,
     sql`SELECT * FROM quote_workspace_quote_fabric_consumptions WHERE quote_id = ${finalQuote.id} ORDER BY created_at ASC`,
     sql`SELECT * FROM quote_workspace_installer_dispatches WHERE quote_id = ${finalQuote.id} ORDER BY created_at DESC`,
+    sql`SELECT * FROM quote_workspace_sales WHERE quote_id = ${finalQuote.id} LIMIT 1`,
+    sql`SELECT * FROM quote_workspace_quote_stage_transitions WHERE quote_id = ${finalQuote.id} ORDER BY changed_at DESC`,
   ], {
     readOnly: true,
   })
@@ -1527,6 +1782,8 @@ export const findFinalQuoteById = async (id: string): Promise<FinalQuoteDetails 
     preQuote: preQuoteRows[0] ? mapPreQuoteRow(preQuoteRows[0] as PreQuoteRow) : null,
     seamstress: seamstressRows[0] ? mapSeamstressRow(seamstressRows[0] as SeamstressRow) : null,
     installer: installerRows[0] ? mapInstallerRow(installerRows[0] as InstallerRow) : null,
+    sale: saleRows[0] ? mapSaleRow(saleRows[0] as SaleRow) : null,
+    stageTransitions: (transitionRows as QuoteStageTransitionRow[]).map(mapQuoteStageTransitionRow),
     fabricConsumptions,
     installerDispatches: (dispatchRows as InstallerDispatchRow[]).map(mapInstallerDispatchRow),
   }
@@ -1613,6 +1870,7 @@ export const saveFinalQuoteRecord = async (input: {
     const now = new Date().toISOString()
     const persistedCustomer = await getCustomerForQuoteWithClient(client, input.record, input.customerId)
     const existing = input.id ? await fetchFinalQuoteWithClient(client, input.id) : null
+    const existingSale = existing ? await fetchSaleByQuoteIdWithClient(client, existing.id) : null
     const selectedSeamstress = input.seamstressId ? await getSeamstressForUpdate(client, input.seamstressId) : null
     const selectedInstaller = input.installerId ? await getInstallerForUpdate(client, input.installerId) : null
 
@@ -1643,6 +1901,14 @@ export const saveFinalQuoteRecord = async (input: {
     }
 
     const persistedStatus = input.status ?? existing?.status ?? 'rascunho'
+
+    if (existingSale && persistedStatus !== 'pronto') {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'Este orçamento já virou venda. O status comercial deve ser alterado pela aba de vendas.',
+      })
+    }
+
     input.record.project.code = await resolveAvailableFinalQuoteCodeWithClient(
       client,
       input.record.project.code,
@@ -1861,6 +2127,15 @@ export const saveFinalQuoteRecord = async (input: {
       throw error
     }
 
+    if (!existing || existing.status !== persistedStatus) {
+      await insertQuoteStageTransitionWithClient(client, {
+        quoteId: persistedQuote.id,
+        fromStage: existing?.status || '',
+        toStage: persistedStatus,
+        changedAt: now,
+      })
+    }
+
     const persistedConsumptions: QuoteFabricConsumptionRecord[] = desiredConsumptions.map((entry) => {
       const previous = previousByKey.get(buildQuoteFabricConsumptionKey(entry))
 
@@ -1890,6 +2165,279 @@ export const saveFinalQuoteRecord = async (input: {
     return persistedQuote
   }),
 )
+
+export const listSales = async (filters?: {
+  customerId?: string
+  search?: string
+  status?: SaleRecord['status'] | 'all'
+  dateFrom?: string
+  dateTo?: string
+  paymentMethod?: string
+  seamstressId?: string
+  installerId?: string
+  productType?: SaleListItem['productTypes'][number]
+  sortBy?: 'customer' | 'date' | 'value' | 'status'
+}): Promise<SaleListItem[]> => {
+  const store = await readQuoteWorkspaceStore()
+  const search = filters?.search?.trim().toLowerCase() || ''
+  const dateToBoundary = filters?.dateTo ? `${filters.dateTo}T23:59:59.999Z` : ''
+
+  const sales = store.sales
+    .map((sale) => mapSaleListItemFromStore(store, sale))
+    .filter((sale) => {
+      if (filters?.customerId && sale.customerId !== filters.customerId) {
+        return false
+      }
+
+      if (filters?.status && filters.status !== 'all' && sale.status !== filters.status) {
+        return false
+      }
+
+      if (filters?.seamstressId && sale.seamstressId !== filters.seamstressId) {
+        return false
+      }
+
+      if (filters?.installerId && sale.installerId !== filters.installerId) {
+        return false
+      }
+
+      if (filters?.dateFrom && sale.soldAt < filters.dateFrom) {
+        return false
+      }
+
+      if (dateToBoundary && sale.soldAt > dateToBoundary) {
+        return false
+      }
+
+      if (filters?.paymentMethod && filters.paymentMethod !== 'all' && sale.paymentMethod !== filters.paymentMethod) {
+        return false
+      }
+
+      if (filters?.productType && !sale.productTypes.includes(filters.productType)) {
+        return false
+      }
+
+      if (!search) {
+        return true
+      }
+
+      return [
+        sale.customer.name,
+        sale.customer.whatsapp,
+        sale.customer.email,
+        sale.code,
+        sale.paymentMethod,
+        sale.seamstressName,
+        sale.installerName,
+        sale.productLabel,
+      ].join(' ').toLowerCase().includes(search)
+    })
+
+  if (filters?.sortBy === 'customer') {
+    sales.sort((left, right) => left.customer.name.localeCompare(right.customer.name, 'pt-BR'))
+  }
+  else if (filters?.sortBy === 'value') {
+    sales.sort((left, right) => right.totalValue - left.totalValue)
+  }
+  else if (filters?.sortBy === 'status') {
+    sales.sort((left, right) => left.status.localeCompare(right.status, 'pt-BR'))
+  }
+  else {
+    sales.sort((left, right) => right.soldAt.localeCompare(left.soldAt))
+  }
+
+  return sales
+}
+
+export const findSaleById = async (id: string) => {
+  await ensureSchema()
+  const sql = getSql()
+  const [saleRow] = await sql`
+    SELECT *
+    FROM quote_workspace_sales
+    WHERE id = ${id}
+    LIMIT 1
+  `
+
+  if (!saleRow) {
+    return null
+  }
+
+  const sale = mapSaleRow(saleRow as SaleRow)
+  const [quoteDetails, store] = await Promise.all([
+    findFinalQuoteById(sale.quoteId),
+    readQuoteWorkspaceStore(),
+  ])
+  const saleListItem = mapSaleListItemFromStore(store, sale)
+  const fallbackCustomer = store.customers.find((entry) => entry.id === sale.customerId) || {
+    id: sale.customerId,
+    name: sale.recordSnapshot.customer.name || 'Cliente não encontrado',
+    whatsapp: sale.recordSnapshot.customer.phone || '',
+    email: sale.recordSnapshot.customer.email || '',
+    locationLabel: sale.recordSnapshot.customer.city || '',
+    address: sale.recordSnapshot.customer.address || '',
+    complement: sale.recordSnapshot.customer.complement || '',
+    neighborhood: sale.recordSnapshot.customer.neighborhood || '',
+    city: sale.recordSnapshot.customer.city || '',
+    state: sale.recordSnapshot.customer.state || '',
+    zipcode: sale.recordSnapshot.customer.zipcode || '',
+    createdAt: sale.createdAt,
+    updatedAt: sale.updatedAt,
+  }
+  const fallbackPreQuote = sale.preQuoteId ? store.preQuotes.find((entry) => entry.id === sale.preQuoteId) || null : null
+  const fallbackSeamstress = sale.seamstressId ? store.seamstresses.find((entry) => entry.id === sale.seamstressId) || null : null
+  const fallbackInstaller = sale.installerId ? store.installers.find((entry) => entry.id === sale.installerId) || null : null
+
+  if (!quoteDetails) {
+    const fallbackQuote: FinalQuoteDetails = {
+      id: sale.quoteId,
+      code: sale.recordSnapshot.project.code || sale.quoteId,
+      customerId: sale.customerId,
+      preQuoteId: sale.preQuoteId,
+      seamstressId: sale.seamstressId,
+      installerId: sale.installerId,
+      status: 'pronto',
+      record: normalizeAdminQuoteRecord(sale.recordSnapshot),
+      createdAt: sale.createdAt,
+      updatedAt: sale.updatedAt,
+      customer: fallbackCustomer,
+      preQuote: fallbackPreQuote,
+      seamstress: fallbackSeamstress,
+      installer: fallbackInstaller,
+      sale,
+      stageTransitions: store.quoteStageTransitions.filter((entry) => entry.quoteId === sale.quoteId),
+      fabricConsumptions: [],
+      installerDispatches: store.installerDispatches.filter((entry) => entry.quoteId === sale.quoteId),
+    }
+
+    return {
+      sale: saleListItem,
+      quote: fallbackQuote,
+      customer: fallbackQuote.customer,
+      preQuote: fallbackQuote.preQuote,
+      seamstress: fallbackQuote.seamstress,
+      installer: fallbackQuote.installer,
+      stageTransitions: fallbackQuote.stageTransitions,
+    }
+  }
+
+  return {
+    sale: saleListItem,
+    quote: quoteDetails,
+    customer: quoteDetails.customer,
+    preQuote: quoteDetails.preQuote,
+    seamstress: quoteDetails.seamstress,
+    installer: quoteDetails.installer,
+    stageTransitions: quoteDetails.stageTransitions,
+  }
+}
+
+export const transitionSaleStatus = async (input: {
+  quoteId: string
+  status: SaleRecord['status']
+  changedBy?: string
+}): Promise<SaleRecord> => serializeWrite(async () =>
+  withTransaction(async (client) => {
+    const quote = await fetchFinalQuoteWithClient(client, input.quoteId)
+
+    if (!quote) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Orçamento final não encontrado.',
+      })
+    }
+
+    const existingSale = await fetchSaleByQuoteIdWithClient(client, input.quoteId)
+    const now = new Date().toISOString()
+
+    if (input.status === 'vendido') {
+      if (quote.status !== 'pronto') {
+        throw createError({
+          statusCode: 409,
+          statusMessage: 'A venda só pode ser criada a partir de um orçamento concluído.',
+        })
+      }
+
+      if (existingSale) {
+        return existingSale
+      }
+
+      const createdSale = createSaleRecordFromFinalQuote({
+        quote,
+        soldAt: now,
+      })
+      const persistedSale = await upsertSaleWithClient(client, createdSale)
+      await insertQuoteStageTransitionWithClient(client, {
+        quoteId: quote.id,
+        fromStage: quote.status,
+        toStage: 'vendido',
+        changedAt: now,
+        changedBy: input.changedBy,
+      })
+      return persistedSale
+    }
+
+    if (!existingSale) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Venda não encontrada para este orçamento.',
+      })
+    }
+
+    if (existingSale.status === 'pago') {
+      return existingSale
+    }
+
+    if (existingSale.status !== 'vendido') {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'Apenas vendas marcadas como vendidas podem ser alteradas para pago.',
+      })
+    }
+
+    const paidSale = await upsertSaleWithClient(client, {
+      ...existingSale,
+      status: 'pago',
+      paidAt: existingSale.paidAt || now,
+      updatedAt: now,
+    })
+
+    await insertQuoteStageTransitionWithClient(client, {
+      quoteId: quote.id,
+      fromStage: 'vendido',
+      toStage: 'pago',
+      changedAt: now,
+      changedBy: input.changedBy,
+    })
+
+    return paidSale
+  }),
+)
+
+export const fetchSalesDashboard = async (input: {
+  range: SalesDashboardRange
+  customerId?: string
+  search?: string
+  status?: SaleRecord['status'] | 'all'
+  dateFrom?: string
+  dateTo?: string
+  paymentMethod?: string
+  seamstressId?: string
+  installerId?: string
+  productType?: SaleListItem['productTypes'][number]
+}): Promise<SalesDashboardMetrics> => {
+  const [sales, store] = await Promise.all([
+    listSales(input),
+    readQuoteWorkspaceStore(),
+  ])
+  const quoteIds = new Set(sales.map((sale) => sale.quoteId))
+
+  return buildSalesDashboardMetrics({
+    sales,
+    transitions: store.quoteStageTransitions.filter((transition) => quoteIds.has(transition.quoteId)),
+    range: input.range,
+  })
+}
 
 export const updatePreQuoteStatus = async (id: string, status: PreQuoteStatus) =>
   serializeWrite(async () => {

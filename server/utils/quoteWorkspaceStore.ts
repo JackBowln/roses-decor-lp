@@ -148,3 +148,23 @@ export const createInstallerDispatch = (...args: Parameters<typeof neonStore.cre
   assertOperationalDatabaseConfigured()
   return neonStore.createInstallerDispatch(...args)
 }
+
+export const listSales = (...args: Parameters<typeof neonStore.listSales>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.listSales(...args)
+}
+
+export const findSaleById = (...args: Parameters<typeof neonStore.findSaleById>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.findSaleById(...args)
+}
+
+export const transitionSaleStatus = (...args: Parameters<typeof neonStore.transitionSaleStatus>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.transitionSaleStatus(...args)
+}
+
+export const fetchSalesDashboard = (...args: Parameters<typeof neonStore.fetchSalesDashboard>) => {
+  assertOperationalDatabaseConfigured()
+  return neonStore.fetchSalesDashboard(...args)
+}
