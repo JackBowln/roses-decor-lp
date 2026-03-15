@@ -1,4 +1,5 @@
 import { formatCurrency, type AdminQuoteRecord, type QuoteItemFabricConsumption, type QuoteLineItem, type QuoteTabId, type QuoteTotals } from '@/lib/adminQuote'
+import { uiFallbacks } from '@/lib/appFallbacks'
 import { normalizeMeters, resolveQuoteLifecycleTag, type FabricRecord, type InstallerRecord, type SaleRecord, type SeamstressRecord, type SeamstressStockBalanceView, type StoredFinalQuote } from '@/lib/quoteWorkspace'
 
 export const QUOTE_DRAFT_META_STORAGE_KEY = 'roses-decor-admin-quote-meta'
@@ -216,7 +217,7 @@ const buildCompactAddressSummary = (record: AdminQuoteRecord) =>
     record.customer.neighborhood,
     record.customer.city ? `${record.customer.city}${record.customer.state ? `/${record.customer.state}` : ''}` : '',
     record.customer.zipcode ? `CEP ${record.customer.zipcode}` : '',
-  ].filter(Boolean).join(' • ') || 'Endereço pendente'
+  ].filter(Boolean).join(' • ') || uiFallbacks.pendingAddress
 
 const formatStakeholderSummary = (
   name: string,
@@ -233,7 +234,7 @@ const formatStakeholderSummary = (
 
   return {
     name: name || 'Responsável sem nome',
-    contact: email || whatsapp || 'Contato pendente',
+    contact: email || whatsapp || uiFallbacks.pendingContact,
   }
 }
 
@@ -267,7 +268,7 @@ export const buildQuoteBusinessSummary = (input: {
       title: 'Cliente',
       items: [
         { label: 'Nome', value: input.record.customer.name || 'Cliente não informado' },
-        { label: 'Contato principal', value: input.record.customer.phone || input.record.customer.email || 'Contato pendente' },
+        { label: 'Contato principal', value: input.record.customer.phone || input.record.customer.email || uiFallbacks.pendingContact },
         { label: 'Endereço resumido', value: buildCompactAddressSummary(input.record) },
         { label: 'Origem comercial', value: input.linkedPreQuoteCode || input.linkedCustomerLocation || 'Cadastro direto no orçamento' },
       ],
@@ -277,10 +278,10 @@ export const buildQuoteBusinessSummary = (input: {
       items: [
         { label: 'Código', value: input.record.project.code || 'Sem código' },
         { label: 'Status', value: resolveQuoteLifecycleTag({ quoteStatus: input.quoteStatus, saleStatus: input.saleStatus || null }) },
-        { label: 'Emissão', value: input.record.project.createdAt || 'Pendente' },
-        { label: 'Validade', value: input.record.project.validUntil || 'Pendente' },
-        { label: 'Prazo', value: input.record.project.deliveryLeadTime || 'Pendente' },
-        { label: 'Instalação / entrega', value: input.record.project.installationDate || 'Pendente' },
+        { label: 'Emissão', value: input.record.project.createdAt || uiFallbacks.pending },
+        { label: 'Validade', value: input.record.project.validUntil || uiFallbacks.pending },
+        { label: 'Prazo', value: input.record.project.deliveryLeadTime || uiFallbacks.pending },
+        { label: 'Instalação / entrega', value: input.record.project.installationDate || uiFallbacks.pending },
         { label: 'Itens', value: String(input.record.items.length) },
         { label: 'Total estimado', value: formatCurrency(input.totals.grandTotal) },
       ],
