@@ -1,5 +1,5 @@
 import { createError, getQuery, setHeader } from 'h3'
-import { readWorkspaceDocument } from '../../../utils/quoteWorkspaceStore'
+import { readWorkspaceDocument } from '~~/server/utils/quoteWorkspaceStore'
 
 export default defineEventHandler(async (event) => {
   const id = event.context.params?.id || ''

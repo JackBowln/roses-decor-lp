@@ -1,6 +1,6 @@
 import { createError, setHeader } from 'h3'
-import { assertAdminSession } from '../../../../utils/adminAuth'
-import { findPreQuoteById, readWorkspaceDocument } from '../../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { findPreQuoteById, readWorkspaceDocument } from '~~/server/utils/quoteWorkspaceStore'
 
 export default defineEventHandler(async (event) => {
   assertAdminSession(event)

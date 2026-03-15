@@ -1,6 +1,6 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../../utils/adminAuth'
-import { saveSeamstressRecord } from '../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { saveSeamstressRecord } from '~~/server/utils/quoteWorkspaceStore'
 import type { SeamstressStatus } from '~~/app/lib/quoteWorkspace'
 
 interface SaveSeamstressPayload {

@@ -1,6 +1,6 @@
 import { createError } from 'h3'
-import { assertAdminSession } from '../../../utils/adminAuth'
-import { findInstallerById } from '../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { findInstallerById } from '~~/server/utils/quoteWorkspaceStore'
 
 export default defineEventHandler(async (event) => {
   assertAdminSession(event)

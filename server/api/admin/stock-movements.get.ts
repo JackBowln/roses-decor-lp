@@ -1,6 +1,6 @@
 import { getQuery } from 'h3'
-import { assertAdminSession } from '../../utils/adminAuth'
-import { listStockMovements } from '../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { listStockMovements } from '~~/server/utils/quoteWorkspaceStore'
 
 export default defineEventHandler(async (event) => {
   assertAdminSession(event)

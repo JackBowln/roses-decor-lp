@@ -1,6 +1,6 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../../utils/adminAuth'
-import { transferStockBetweenSeamstresses } from '../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { transferStockBetweenSeamstresses } from '~~/server/utils/quoteWorkspaceStore'
 
 interface TransferStockPayload {
   fromSeamstressId?: string

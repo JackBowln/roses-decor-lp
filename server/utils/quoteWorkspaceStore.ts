@@ -1,6 +1,7 @@
 import { createError } from 'h3'
-import * as fileStore from '../data/quoteWorkspaceStore.file'
-import * as neonStore from '../data/quoteWorkspaceStore.neon'
+import * as fileStore from '~~/server/data/quoteWorkspaceStore.file'
+import * as neonStore from '~~/server/data/quoteWorkspaceStore.neon'
+import { requiresOperationalDatabaseForQuoteSave } from '~~/server/utils/quoteWorkspacePolicy'
 
 const shouldUseNeonStore = () => neonStore.isNeonQuoteWorkspaceConfigured()
 const assertOperationalDatabaseConfigured = () => {
@@ -60,16 +61,8 @@ export const convertPreQuoteToFinalQuote = (...args: Parameters<typeof fileStore
 export const saveFinalQuoteRecord = (...args: Parameters<typeof fileStore.saveFinalQuoteRecord>) =>
   (() => {
     const [input] = args
-    const usesInventoryModule = Boolean(
-      input.seamstressId !== undefined
-      || input.installerId !== undefined
-      || input.status !== undefined
-      || Boolean(input.record.project.installationDate)
-      || input.record.items.some((item) => item.installationMeters !== null)
-      || input.record.items.some((item) => Array.isArray(item.fabricConsumptions)),
-    )
 
-    if (usesInventoryModule) {
+    if (requiresOperationalDatabaseForQuoteSave(input)) {
       assertOperationalDatabaseConfigured()
       return neonStore.saveFinalQuoteRecord(...args)
     }

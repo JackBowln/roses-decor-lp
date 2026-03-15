@@ -1,6 +1,6 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../../utils/adminAuth'
-import { saveInstaller } from '../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { saveInstaller } from '~~/server/utils/quoteWorkspaceStore'
 import type { InstallerStatus } from '~~/app/lib/quoteWorkspace'
 
 interface SaveInstallerPayload {

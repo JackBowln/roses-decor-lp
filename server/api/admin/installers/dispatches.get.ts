@@ -1,6 +1,6 @@
 import { getQuery } from 'h3'
-import { assertAdminSession } from '../../../utils/adminAuth'
-import { listInstallerDispatches } from '../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { listInstallerDispatches } from '~~/server/utils/quoteWorkspaceStore'
 import type { InstallerDispatchChannel } from '~~/app/lib/quoteWorkspace'
 
 export default defineEventHandler(async (event) => {

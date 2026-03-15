@@ -1,5 +1,5 @@
 import { createError, readBody } from 'h3'
-import { assertAdminPasswordConfigured, setAdminSessionCookie, verifyAdminPassword } from '../../utils/adminAuth'
+import { assertAdminPasswordConfigured, setAdminSessionCookie, verifyAdminPassword } from '~~/server/utils/adminAuth'
 
 interface LoginPayload {
   password?: string

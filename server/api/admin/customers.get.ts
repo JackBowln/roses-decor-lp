@@ -1,5 +1,5 @@
-import { assertAdminSession } from '../../utils/adminAuth'
-import { listCustomerSummaries } from '../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { listCustomerSummaries } from '~~/server/utils/quoteWorkspaceStore'
 
 export default defineEventHandler(async (event) => {
   assertAdminSession(event)

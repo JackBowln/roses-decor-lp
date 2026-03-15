@@ -1,6 +1,6 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../../utils/adminAuth'
-import { saveFabricRecord } from '../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { saveFabricRecord } from '~~/server/utils/quoteWorkspaceStore'
 import type { FabricStatus } from '~~/app/lib/quoteWorkspace'
 
 interface SaveFabricPayload {

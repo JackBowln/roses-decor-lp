@@ -1,6 +1,6 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../../../utils/adminAuth'
-import { createInstallerDispatch } from '../../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { createInstallerDispatch } from '~~/server/utils/quoteWorkspaceStore'
 import type { InstallerDispatchChannel, InstallerDispatchStatus } from '~~/app/lib/quoteWorkspace'
 
 interface InstallerDispatchLogPayload {

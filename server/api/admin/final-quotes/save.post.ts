@@ -1,6 +1,6 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../../utils/adminAuth'
-import { findFinalQuoteById, saveFinalQuoteRecord } from '../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { findFinalQuoteById, saveFinalQuoteRecord } from '~~/server/utils/quoteWorkspaceStore'
 import type { AdminQuoteRecord } from '~~/app/lib/adminQuote'
 
 interface SaveFinalQuotePayload {

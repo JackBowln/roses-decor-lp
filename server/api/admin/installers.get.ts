@@ -1,6 +1,6 @@
 import { getQuery } from 'h3'
-import { assertAdminSession } from '../../utils/adminAuth'
-import { listInstallers } from '../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { listInstallers } from '~~/server/utils/quoteWorkspaceStore'
 import type { InstallerStatus } from '~~/app/lib/quoteWorkspace'
 
 export default defineEventHandler(async (event) => {

@@ -1,4 +1,4 @@
-import { assertAdminPasswordConfigured, isAdminAuthConfigured, verifyAdminSession } from '../../utils/adminAuth'
+import { assertAdminPasswordConfigured, isAdminAuthConfigured, verifyAdminSession } from '~~/server/utils/adminAuth'
 
 export default defineEventHandler((event) => {
   const configured = isAdminAuthConfigured(event)

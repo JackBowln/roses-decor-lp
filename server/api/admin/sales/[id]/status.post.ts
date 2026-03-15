@@ -1,6 +1,6 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../../../utils/adminAuth'
-import { findFinalQuoteById, transitionSaleStatus } from '../../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { findFinalQuoteById, transitionSaleStatus } from '~~/server/utils/quoteWorkspaceStore'
 
 interface SaleStatusPayload {
   status?: 'vendido' | 'pago'

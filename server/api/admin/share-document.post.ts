@@ -1,8 +1,8 @@
 import { createError, readBody } from 'h3'
 import { generateQuotePdf } from '~~/app/lib/adminQuotePdf'
 import type { AdminQuoteRecord, QuoteDocumentKind } from '~~/app/lib/adminQuote'
-import { assertAdminSession } from '../../utils/adminAuth'
-import { saveWorkspaceDocument } from '../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { saveWorkspaceDocument } from '~~/server/utils/quoteWorkspaceStore'
 
 interface ShareDocumentPayload {
   kind?: QuoteDocumentKind

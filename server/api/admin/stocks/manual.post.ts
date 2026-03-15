@@ -1,6 +1,6 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../../utils/adminAuth'
-import { applyManualStockMovement } from '../../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { applyManualStockMovement } from '~~/server/utils/quoteWorkspaceStore'
 
 interface ManualStockPayload {
   seamstressId?: string
