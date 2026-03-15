@@ -35,17 +35,17 @@ const blackouts = [...quoteFormOptions.blackouts]
 const persianas = [...quoteFormOptions.persianas]
 
 const inputClass =
-  'flex h-12 w-full rounded-md border border-gray-300 bg-white px-4 py-2 text-base placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#C5A059]/50 focus:border-[#C5A059] transition-all duration-300'
+  'app-control h-12 rounded-field text-base text-foreground placeholder:text-muted/42'
 
 const outlineChoiceClass = (selected: boolean) =>
   selected
-    ? 'border-[#C5A059] bg-[#C5A059]/10 text-[#C5A059]'
-    : 'border-gray-200 hover:border-[#C5A059]/50 bg-white text-gray-700'
+    ? 'border-primary/50 bg-primary/10 text-primary-strong shadow-sm'
+    : 'border-black/10 hover:border-primary/35 bg-white text-muted'
 
 const filledChoiceClass = (selected: boolean) =>
   selected
-    ? 'border-[#C5A059] bg-[#C5A059] text-white'
-    : 'border-gray-200 hover:border-[#C5A059]/50 bg-white text-gray-600'
+    ? 'border-primary bg-primary text-white'
+    : 'border-black/10 hover:border-primary/35 bg-white text-muted'
 
 const nextButtonLabel = computed(() => {
   if (currentStep.value === steps.length - 1) {
@@ -61,49 +61,47 @@ const nextButtonLabel = computed(() => {
 </script>
 
 <template>
-  <div class="w-full max-w-2xl mx-auto py-8 text-black font-montserrat">
-    <div v-if="submissionResult" class="border border-gray-100 shadow-xl rounded-2xl overflow-hidden bg-white p-6 md:p-8">
+  <div class="mx-auto w-full max-w-2xl py-8 font-montserrat text-black">
+    <div v-if="submissionResult" class="overflow-hidden rounded-card border border-line/15 bg-white px-6 py-6 shadow-card md:px-8 md:py-8">
       <div class="flex flex-col space-y-1.5 text-center">
-        <div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-2">
+        <div class="mx-auto mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-success">
           <Check class="h-8 w-8" />
         </div>
-        <h3 class="text-3xl font-playfair font-semibold leading-none tracking-tight text-[#2B2B2B]">
+        <h3 class="font-playfair text-3xl font-semibold leading-none tracking-tight text-foreground">
           Pré-orçamento salvo
         </h3>
-        <p class="text-sm text-gray-500 mt-2">
+        <p class="mt-2 text-sm text-muted/72">
           Código {{ submissionResult.preQuote.code }}. Sua solicitação já entrou na área de gestão da Roses Decor.
         </p>
       </div>
 
-      <div class="mt-8 rounded-2xl border border-[#C5A059]/20 bg-[#F8F4ED] p-5 space-y-3">
+      <div class="mt-8 space-y-3 rounded-[22px] border border-line/20 bg-surface-soft/70 p-5">
         <div class="flex items-center justify-between gap-3 text-sm">
-          <span class="text-gray-500">Cliente</span>
-          <strong class="text-[#2B2B2B]">{{ contact.name }}</strong>
+          <span class="text-muted/68">Cliente</span>
+          <strong class="text-foreground">{{ contact.name }}</strong>
         </div>
         <div class="flex items-center justify-between gap-3 text-sm">
-          <span class="text-gray-500">Localização</span>
-          <strong class="text-[#2B2B2B]">{{ contact.location }}</strong>
+          <span class="text-muted/68">Localização</span>
+          <strong class="text-foreground">{{ contact.location }}</strong>
         </div>
         <div class="flex items-center justify-between gap-3 text-sm">
-          <span class="text-gray-500">Itens</span>
-          <strong class="text-[#2B2B2B]">{{ submissionResult.preQuote.items.length }}</strong>
+          <span class="text-muted/68">Itens</span>
+          <strong class="text-foreground">{{ submissionResult.preQuote.items.length }}</strong>
         </div>
         <div class="flex items-center justify-between gap-3 text-sm">
-          <span class="text-gray-500">Status</span>
-          <strong class="text-[#2B2B2B] capitalize">{{ submissionResult.preQuote.status.replace('_', ' ') }}</strong>
+          <span class="text-muted/68">Status</span>
+          <strong class="capitalize text-foreground">{{ submissionResult.preQuote.status.replace('_', ' ') }}</strong>
         </div>
       </div>
 
-      <div class="grid gap-3 mt-6 md:grid-cols-2">
-        <button type="button" class="inline-flex items-center justify-center rounded-xl h-12 px-5 bg-[#25D366] text-white font-semibold gap-2"
-          @click="openWhatsApp">
+      <div class="mt-6 grid gap-3 md:grid-cols-2">
+        <AppButton type="button" class="bg-[#25D366] text-white hover:bg-[#22c35e]" @click="openWhatsApp">
           <MessageCircle class="h-4 w-4" />
           Falar no WhatsApp
-        </button>
-        <button type="button" class="inline-flex items-center justify-center rounded-xl h-12 px-5 border border-gray-200 bg-white text-gray-700 font-semibold"
-          @click="resetForm">
+        </AppButton>
+        <AppButton type="button" @click="resetForm">
           Fazer novo pré-orçamento
-        </button>
+        </AppButton>
       </div>
     </div>
 
@@ -112,7 +110,7 @@ const nextButtonLabel = computed(() => {
 
       <Motion :initial="{ opacity: 0, y: 20 }" :animate="{ opacity: 1, y: 0 }"
         :transition="{ duration: 0.5, delay: 0.2 }">
-        <div class="border border-gray-100 shadow-xl rounded-2xl overflow-hidden bg-white">
+        <div class="overflow-hidden rounded-card border border-line/15 bg-white shadow-card">
           <AnimatePresence mode="wait">
             <Motion :key="currentStep" initial="hidden" animate="visible" exit="exit" :variants="{
               hidden: { opacity: 0, x: 20 },
@@ -121,10 +119,10 @@ const nextButtonLabel = computed(() => {
             }" class="p-6 md:p-8">
               <template v-if="currentStep === 0">
                 <div class="flex flex-col space-y-1.5 mb-8 text-center">
-                  <h3 class="text-3xl font-playfair font-semibold leading-none tracking-tight text-[#2B2B2B]">
+                  <h3 class="font-playfair text-3xl font-semibold leading-none tracking-tight text-foreground">
                     O que você procura?
                   </h3>
-                  <p class="text-sm text-gray-500 mt-2">Escolha o tipo de produto para iniciarmos seu pré-orçamento</p>
+                  <p class="mt-2 text-sm text-muted/72">Escolha o tipo de produto para iniciarmos seu pré-orçamento</p>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -148,10 +146,10 @@ const nextButtonLabel = computed(() => {
 
               <template v-else-if="currentStep === 1">
                 <div class="flex flex-col space-y-1.5 mb-8 text-center">
-                  <h3 class="text-3xl font-playfair font-semibold leading-none tracking-tight text-[#2B2B2B]">
+                  <h3 class="font-playfair text-3xl font-semibold leading-none tracking-tight text-foreground">
                     Para qual ambiente?
                   </h3>
-                  <p class="text-sm text-gray-500 mt-2">
+                  <p class="mt-2 text-sm text-muted/72">
                     Onde a sua nova {{ currentItem.type.toLowerCase() }} será instalada?
                   </p>
                 </div>
@@ -169,17 +167,17 @@ const nextButtonLabel = computed(() => {
 
               <template v-else-if="currentStep === 2">
                 <div class="flex flex-col space-y-1.5 mb-8 text-center">
-                  <h3 class="text-3xl font-playfair font-semibold leading-none tracking-tight text-[#2B2B2B]">
+                  <h3 class="font-playfair text-3xl font-semibold leading-none tracking-tight text-foreground">
                     Qual a sua preferência de material?
                   </h3>
-                  <p class="text-sm text-gray-500 mt-2">
+                  <p class="mt-2 text-sm text-muted/72">
                     Personalize o estilo da sua {{ currentItem.type.toLowerCase() }}
                   </p>
                 </div>
 
                 <div v-if="currentItem.type === 'Cortina'" class="space-y-6">
                   <div>
-                    <p class="text-sm font-semibold mb-3 text-gray-700 uppercase tracking-wider">Tecido principal</p>
+                    <p class="mb-3 text-sm font-semibold uppercase tracking-wider text-foreground/80">Tecido principal</p>
                     <div class="grid grid-cols-2 gap-3">
                       <button v-for="fabric in tecidos" :key="fabric" class="py-3 px-2 rounded-lg border flex items-center justify-center transition-all duration-300 font-medium text-sm"
                         :class="filledChoiceClass(currentItem.material === fabric)" @click="currentItem.material = fabric">
@@ -189,7 +187,7 @@ const nextButtonLabel = computed(() => {
                   </div>
 
                   <div>
-                    <p class="text-sm font-semibold mb-3 text-gray-700 uppercase tracking-wider mt-4">
+                    <p class="mt-4 mb-3 text-sm font-semibold uppercase tracking-wider text-foreground/80">
                       Nível de blackout
                     </p>
                     <div class="grid grid-cols-3 gap-3">
@@ -203,7 +201,7 @@ const nextButtonLabel = computed(() => {
                 </div>
 
                 <div v-else class="space-y-4">
-                  <p class="text-sm font-semibold mb-3 text-gray-700 uppercase tracking-wider">Modelo de persiana</p>
+                  <p class="mb-3 text-sm font-semibold uppercase tracking-wider text-foreground/80">Modelo de persiana</p>
                   <div class="grid grid-cols-2 gap-3">
                     <button v-for="blind in persianas" :key="blind"
                       class="py-4 px-2 rounded-xl border-2 flex items-center justify-center transition-all duration-300 font-medium text-sm"
@@ -216,10 +214,10 @@ const nextButtonLabel = computed(() => {
 
               <template v-else-if="currentStep === 3">
                 <div class="flex flex-col space-y-1.5 mb-8 text-center">
-                  <h3 class="text-3xl font-playfair font-semibold leading-none tracking-tight text-[#2B2B2B]">
+                  <h3 class="font-playfair text-3xl font-semibold leading-none tracking-tight text-foreground">
                     Quais as medidas aproximadas?
                   </h3>
-                  <p class="text-sm text-gray-500 mt-2">
+                  <p class="mt-2 text-sm text-muted/72">
                     Para uma triagem mais precisa, informe o tamanho aproximado do espaço.
                   </p>
                 </div>
@@ -229,13 +227,13 @@ const nextButtonLabel = computed(() => {
                     :class="currentItem.dontKnowMeasures ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'">
                     <div class="grid grid-cols-2 gap-4">
                       <div class="space-y-2">
-                        <label class="text-sm font-medium text-gray-700">Largura (m)</label>
+                        <label class="text-sm font-medium text-foreground/80">Largura (m)</label>
                         <input v-model="currentItem.width" type="number" step="0.1" placeholder="Ex: 2.5"
                           :class="inputClass" :disabled="currentItem.dontKnowMeasures" />
                       </div>
 
                       <div class="space-y-2">
-                        <label class="text-sm font-medium text-gray-700">Altura (m)</label>
+                        <label class="text-sm font-medium text-foreground/80">Altura (m)</label>
                         <input v-model="currentItem.height" type="number" step="0.1" placeholder="Ex: 2.6"
                           :class="inputClass" :disabled="currentItem.dontKnowMeasures" />
                       </div>
@@ -243,16 +241,16 @@ const nextButtonLabel = computed(() => {
                   </Motion>
 
                   <label
-                    class="flex items-center space-x-3 cursor-pointer mt-4 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                    :class="currentItem.dontKnowMeasures ? 'bg-[#C5A059]/5 border-[#C5A059]/30' : ''">
-                    <div class="flex items-center justify-center w-5 h-5 rounded-md border border-gray-300"
-                      :class="currentItem.dontKnowMeasures ? 'bg-[#C5A059] border-[#C5A059]' : 'bg-white'">
+                    class="mt-4 flex cursor-pointer items-center space-x-3 rounded-field border border-black/10 p-4 transition-colors hover:bg-surface-soft/45"
+                    :class="currentItem.dontKnowMeasures ? 'border-primary/30 bg-primary/5' : ''">
+                    <div class="flex h-5 w-5 items-center justify-center rounded-md border border-black/20"
+                      :class="currentItem.dontKnowMeasures ? 'border-primary bg-primary' : 'bg-white'">
                       <Check v-if="currentItem.dontKnowMeasures" class="h-4 w-4 text-white" />
                     </div>
                     <input v-model="currentItem.dontKnowMeasures" type="checkbox" class="hidden" />
-                    <span class="text-sm font-medium text-gray-700">
+                    <span class="text-sm font-medium text-foreground/80">
                       Não sei as medidas exatas
-                      <span class="font-normal text-gray-500">(agendaremos uma visita para medição)</span>
+                      <span class="font-normal text-muted/68">(agendaremos uma visita para medição)</span>
                     </span>
                   </label>
                 </div>
@@ -260,17 +258,17 @@ const nextButtonLabel = computed(() => {
 
               <template v-else-if="currentStep === 4">
                 <div class="flex flex-col space-y-1.5 mb-6">
-                  <h3 class="text-3xl font-playfair font-semibold leading-none tracking-tight text-[#2B2B2B]">
+                  <h3 class="font-playfair text-3xl font-semibold leading-none tracking-tight text-foreground">
                     Resumo da solicitação
                   </h3>
-                  <p class="text-sm text-gray-500 mt-2">Revise os ambientes antes de salvar o pré-orçamento</p>
+                  <p class="mt-2 text-sm text-muted/72">Revise os ambientes antes de salvar o pré-orçamento</p>
                 </div>
 
                 <div class="space-y-4">
                   <QuoteSummaryCard v-for="(item, index) in items" :key="`${item.type}-${item.env}-${index}`" :item="item"
                     @remove="removeItem(index)" />
 
-                  <button class="w-full flex items-center justify-center gap-2 py-4 mt-2 border-2 border-dashed border-gray-300 text-gray-600 rounded-xl hover:bg-gray-50 hover:border-gray-400 hover:text-gray-900 transition-all font-medium"
+                  <button class="mt-2 flex w-full items-center justify-center gap-2 rounded-[22px] border-2 border-dashed border-black/15 py-4 font-medium text-muted transition-all hover:border-primary/35 hover:bg-surface-soft/35 hover:text-foreground"
                     @click="addAnotherRoom">
                     <Plus class="w-4 h-4" />
                     Adicionar outro cômodo
@@ -280,13 +278,13 @@ const nextButtonLabel = computed(() => {
 
               <template v-else>
                 <div class="flex flex-col space-y-1.5 mb-8 text-center mt-2">
-                  <div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-success">
                     <MessageCircle class="h-8 w-8" />
                   </div>
-                  <h3 class="text-3xl font-playfair font-semibold leading-none tracking-tight text-[#2B2B2B]">
+                  <h3 class="font-playfair text-3xl font-semibold leading-none tracking-tight text-foreground">
                     Como podemos te chamar?
                   </h3>
-                  <p class="text-sm text-gray-500 mt-2">
+                  <p class="mt-2 text-sm text-muted/72">
                     Salve o seu pré-orçamento agora. O WhatsApp continua disponível como próximo passo opcional.
                   </p>
                 </div>
@@ -317,15 +315,14 @@ const nextButtonLabel = computed(() => {
             </Motion>
           </AnimatePresence>
 
-          <div class="flex items-center justify-between p-6 px-4 md:px-8 border-t border-gray-100 bg-gray-50 mt-8">
-            <button type="button" class="inline-flex items-center justify-center rounded-xl text-sm font-semibold transition-all duration-300 disabled:opacity-0 disabled:pointer-events-none h-11 px-5 py-2 border border-gray-200 hover:bg-gray-100 gap-2 text-gray-700 bg-white shadow-sm"
-              :disabled="currentStep === 0" @click="prevStep">
+          <div class="mt-8 flex items-center justify-between border-t border-black/5 bg-surface-soft/35 px-4 py-6 md:px-8">
+            <AppButton type="button" class="disabled:pointer-events-none disabled:opacity-0" :disabled="currentStep === 0" @click="prevStep">
               <ChevronLeft class="h-4 w-4" />
               Voltar
-            </button>
+            </AppButton>
 
-            <button type="button" class="inline-flex items-center justify-center rounded-xl text-sm font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed h-11 px-6 py-2 bg-[#C5A059] text-white hover:bg-[#b5952f] gap-2 shadow-md hover:shadow-lg"
-              :disabled="!isStepValid || isSubmitting" @click="currentStep === steps.length - 1 ? finish() : nextStep()">
+            <AppButton type="button" variant="primary" :disabled="!isStepValid || isSubmitting"
+              @click="currentStep === steps.length - 1 ? finish() : nextStep()">
               <template v-if="isSubmitting">
                 <Loader2 class="h-4 w-4 animate-spin" />
                 Salvando...
@@ -334,7 +331,7 @@ const nextButtonLabel = computed(() => {
                 {{ nextButtonLabel }}
                 <ChevronRight v-if="currentStep !== steps.length - 1" class="h-4 w-4" />
               </template>
-            </button>
+            </AppButton>
           </div>
         </div>
       </Motion>

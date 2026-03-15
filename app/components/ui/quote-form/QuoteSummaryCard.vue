@@ -21,21 +21,21 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="flex items-start justify-between p-4 border border-[#C5A059]/30 bg-[#C5A059]/5 rounded-xl">
-    <div>
-      <h4 class="font-medium text-gray-900">{{ item.type }} - {{ item.env }}</h4>
-      <p class="text-sm text-gray-600 mt-1">
+  <div class="grid gap-3 rounded-[22px] border border-line/25 bg-surface-soft/45 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+    <div class="min-w-0">
+      <h4 class="font-semibold text-foreground">{{ item.type }} - {{ item.env }}</h4>
+      <p class="mt-1 text-sm leading-6 text-muted/82">
         {{ item.material }}
-        <template v-if="item.blackout && item.blackout !== 'Sem Blackout'">• Blackout {{ item.blackout }}</template>
+        <template v-if="item.blackout && item.blackout !== 'Sem Blackout'"> • Blackout {{ item.blackout }}</template>
       </p>
-      <p class="text-sm text-gray-500 mt-1">
+      <p class="mt-1 text-sm text-muted/68">
         <span v-if="item.dontKnowMeasures">Medidas a confirmar</span>
         <span v-else>{{ item.width }}m x {{ item.height }}m</span>
       </p>
     </div>
-    <button class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
-      @click="emit('remove')">
-      <Trash2 class="w-5 h-5" />
-    </button>
+
+    <AppIconButton label="Remover ambiente" @click="emit('remove')">
+      <Trash2 class="h-5 w-5" />
+    </AppIconButton>
   </div>
 </template>

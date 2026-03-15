@@ -145,164 +145,193 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="admin-shell">
-    <div class="container admin-stack">
-      <div class="page-card page-card-hero">
-        <div>
-          <span class="page-kicker">Estoque</span>
-          <h1>Saldos por costureira e histórico auditável</h1>
-          <p>Gerencie entradas, ajustes, transferências e acompanhe todas as baixas disparadas pelos orçamentos finais.</p>
-        </div>
+  <AppPageShell>
+    <AppPageHeader
+      kicker="Estoque"
+      title="Saldos por costureira e histórico auditável"
+      description="Gerencie entradas, ajustes, transferências e acompanhe todas as baixas disparadas pelos orçamentos finais."
+    />
 
-        <div class="toolbar-stack">
-          <input v-model="search" type="search" placeholder="Buscar por costureira ou tecido">
-          <div class="toolbar-grid">
-            <select v-model="seamstressFilter">
+    <AppSectionCard class="grid gap-4 md:gap-5">
+      <div class="grid gap-4 lg:grid-cols-2">
+        <AppField label="Buscar por costureira ou tecido">
+          <AppInput v-model="search" type="search" placeholder="Buscar por costureira ou tecido" />
+        </AppField>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <AppField label="Costureira">
+            <AppSelect v-model="seamstressFilter">
               <option value="">Todas as costureiras</option>
-              <option v-for="seamstress in seamstresses" :key="seamstress.id" :value="seamstress.id">{{ seamstress.name }}</option>
-            </select>
-            <select v-model="fabricFilter">
+              <option v-for="seamstress in seamstresses" :key="seamstress.id" :value="seamstress.id">
+                {{ seamstress.name }}
+              </option>
+            </AppSelect>
+          </AppField>
+          <AppField label="Tecido">
+            <AppSelect v-model="fabricFilter">
               <option value="">Todos os tecidos</option>
               <option v-for="fabric in fabrics" :key="fabric.id" :value="fabric.id">
                 {{ [fabric.name, fabric.colorOrCollection].filter(Boolean).join(' • ') }}
               </option>
-            </select>
-          </div>
-          <div class="toolbar-grid">
-            <input v-model="quoteFilter" type="text" placeholder="ID do orçamento">
-            <div />
-          </div>
-          <div class="toolbar-grid">
-            <input v-model="dateFrom" type="date">
-            <input v-model="dateTo" type="date">
-          </div>
+            </AppSelect>
+          </AppField>
         </div>
       </div>
 
-      <div v-if="isLoading" class="page-card">
-        <p>Carregando estoque...</p>
+      <div class="grid gap-4 lg:grid-cols-3">
+        <AppField label="ID do orçamento">
+          <AppInput v-model="quoteFilter" type="text" placeholder="ID do orçamento" />
+        </AppField>
+        <AppField label="Data inicial">
+          <AppInput v-model="dateFrom" type="date" />
+        </AppField>
+        <AppField label="Data final">
+          <AppInput v-model="dateTo" type="date" />
+        </AppField>
       </div>
+    </AppSectionCard>
 
-      <template v-else>
-        <div class="page-card card-grid">
-          <section class="sub-card">
-            <div class="sub-card-head">
-              <div>
-                <span class="page-kicker">Entrada / ajuste</span>
-                <h2>Movimentação manual</h2>
-              </div>
-            </div>
+    <AppSectionCard v-if="isLoading">
+      <p class="text-sm text-muted/85">Carregando estoque...</p>
+    </AppSectionCard>
 
-            <div class="fields-grid fields-grid-2">
-              <label class="field">
-                <span>Costureira</span>
-                <select v-model="manualForm.seamstressId">
-                  <option value="">Selecione</option>
-                  <option v-for="seamstress in seamstresses" :key="seamstress.id" :value="seamstress.id">{{ seamstress.name }}</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Tecido</span>
-                <select v-model="manualForm.fabricId">
-                  <option value="">Selecione</option>
-                  <option v-for="fabric in fabrics" :key="fabric.id" :value="fabric.id">
-                    {{ [fabric.name, fabric.colorOrCollection].filter(Boolean).join(' • ') }}
-                  </option>
-                </select>
-              </label>
-            </div>
+    <template v-else>
+      <div class="grid gap-4 xl:grid-cols-2">
+        <AppSectionCard variant="soft" class="grid gap-4 md:gap-5">
+          <div>
+            <span class="app-kicker">Entrada / ajuste</span>
+            <h2 class="mt-2 text-[1.25rem] text-foreground">Movimentação manual</h2>
+          </div>
 
-            <div class="fields-grid fields-grid-3">
-              <label class="field">
-                <span>Tipo</span>
-                <select v-model="manualForm.mode">
-                  <option value="entrada_manual">Entrada manual</option>
-                  <option value="ajuste_manual">Ajuste manual (+/-)</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Metros</span>
-                <input v-model.number="manualForm.quantityMeters" type="number" step="0.01" placeholder="10.00">
-              </label>
-              <label class="field field-toggle">
-                <span>Permitir negativo</span>
-                <input v-model="manualForm.allowNegative" type="checkbox">
-              </label>
-            </div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <AppField label="Costureira">
+              <AppSelect v-model="manualForm.seamstressId">
+                <option value="">Selecione</option>
+                <option v-for="seamstress in seamstresses" :key="seamstress.id" :value="seamstress.id">
+                  {{ seamstress.name }}
+                </option>
+              </AppSelect>
+            </AppField>
+            <AppField label="Tecido">
+              <AppSelect v-model="manualForm.fabricId">
+                <option value="">Selecione</option>
+                <option v-for="fabric in fabrics" :key="fabric.id" :value="fabric.id">
+                  {{ [fabric.name, fabric.colorOrCollection].filter(Boolean).join(' • ') }}
+                </option>
+              </AppSelect>
+            </AppField>
+          </div>
 
-            <label class="field">
-              <span>Observações</span>
-              <textarea v-model="manualForm.notes" rows="3" placeholder="Motivo da entrada ou ajuste..." />
+          <div class="grid gap-4 lg:grid-cols-3">
+            <AppField label="Tipo">
+              <AppSelect v-model="manualForm.mode">
+                <option value="entrada_manual">Entrada manual</option>
+                <option value="ajuste_manual">Ajuste manual (+/-)</option>
+              </AppSelect>
+            </AppField>
+            <AppField label="Metros">
+              <AppInput v-model.number="manualForm.quantityMeters" type="number" step="0.01" placeholder="10.00" />
+            </AppField>
+            <label class="grid gap-2.5">
+              <span class="text-sm font-bold text-foreground/90">Permitir negativo</span>
+              <span class="flex min-h-touch items-center gap-3 rounded-field border border-black/10 bg-white/90 px-4 shadow-sm">
+                <input v-model="manualForm.allowNegative" type="checkbox" class="h-4 w-4 rounded border-black/20 text-primary focus:ring-primary/20">
+                <span class="text-sm text-muted/78">Aplicar ajuste mesmo com saldo abaixo de zero.</span>
+              </span>
             </label>
+          </div>
 
-            <button type="button" class="primary-button" :disabled="isSubmittingManual" @click="submitManualMovement">
+          <AppField label="Observações">
+            <AppTextarea v-model="manualForm.notes" rows="3" placeholder="Motivo da entrada ou ajuste..." />
+          </AppField>
+
+          <div class="flex flex-wrap justify-end gap-3">
+            <AppButton variant="primary" :loading="isSubmittingManual" @click="submitManualMovement">
               {{ isSubmittingManual ? 'Salvando...' : 'Registrar movimentação' }}
-            </button>
-          </section>
+            </AppButton>
+          </div>
+        </AppSectionCard>
 
-          <section class="sub-card">
-            <div class="sub-card-head">
-              <div>
-                <span class="page-kicker">Transferência</span>
-                <h2>Realocar entre costureiras</h2>
-              </div>
-            </div>
-
-            <div class="fields-grid fields-grid-2">
-              <label class="field">
-                <span>Origem</span>
-                <select v-model="transferForm.fromSeamstressId">
-                  <option value="">Selecione</option>
-                  <option v-for="seamstress in seamstresses" :key="seamstress.id" :value="seamstress.id">{{ seamstress.name }}</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Destino</span>
-                <select v-model="transferForm.toSeamstressId">
-                  <option value="">Selecione</option>
-                  <option v-for="seamstress in seamstresses" :key="seamstress.id" :value="seamstress.id">{{ seamstress.name }}</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="fields-grid fields-grid-2">
-              <label class="field">
-                <span>Tecido</span>
-                <select v-model="transferForm.fabricId">
-                  <option value="">Selecione</option>
-                  <option v-for="fabric in fabrics" :key="fabric.id" :value="fabric.id">
-                    {{ [fabric.name, fabric.colorOrCollection].filter(Boolean).join(' • ') }}
-                  </option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Metros</span>
-                <input v-model.number="transferForm.quantityMeters" type="number" step="0.01" placeholder="5.00">
-              </label>
-            </div>
-
-            <label class="field">
-              <span>Observações</span>
-              <textarea v-model="transferForm.notes" rows="3" placeholder="Motivo da transferência..." />
-            </label>
-
-            <button type="button" class="primary-button" :disabled="isSubmittingTransfer" @click="submitTransfer">
-              {{ isSubmittingTransfer ? 'Transferindo...' : 'Transferir estoque' }}
-            </button>
-          </section>
-        </div>
-
-        <div class="page-card table-card">
-          <div class="table-head">
-            <div>
-              <span class="page-kicker">Saldo atual</span>
-              <h2>Estoque por costureira</h2>
-            </div>
-            <strong>{{ balances.length }} saldos</strong>
+        <AppSectionCard variant="soft" class="grid gap-4 md:gap-5">
+          <div>
+            <span class="app-kicker">Transferência</span>
+            <h2 class="mt-2 text-[1.25rem] text-foreground">Realocar entre costureiras</h2>
           </div>
 
-          <div class="table-shell">
-            <table>
+          <div class="grid gap-4 md:grid-cols-2">
+            <AppField label="Origem">
+              <AppSelect v-model="transferForm.fromSeamstressId">
+                <option value="">Selecione</option>
+                <option v-for="seamstress in seamstresses" :key="seamstress.id" :value="seamstress.id">
+                  {{ seamstress.name }}
+                </option>
+              </AppSelect>
+            </AppField>
+            <AppField label="Destino">
+              <AppSelect v-model="transferForm.toSeamstressId">
+                <option value="">Selecione</option>
+                <option v-for="seamstress in seamstresses" :key="seamstress.id" :value="seamstress.id">
+                  {{ seamstress.name }}
+                </option>
+              </AppSelect>
+            </AppField>
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <AppField label="Tecido">
+              <AppSelect v-model="transferForm.fabricId">
+                <option value="">Selecione</option>
+                <option v-for="fabric in fabrics" :key="fabric.id" :value="fabric.id">
+                  {{ [fabric.name, fabric.colorOrCollection].filter(Boolean).join(' • ') }}
+                </option>
+              </AppSelect>
+            </AppField>
+            <AppField label="Metros">
+              <AppInput v-model.number="transferForm.quantityMeters" type="number" step="0.01" placeholder="5.00" />
+            </AppField>
+          </div>
+
+          <AppField label="Observações">
+            <AppTextarea v-model="transferForm.notes" rows="3" placeholder="Motivo da transferência..." />
+          </AppField>
+
+          <div class="flex flex-wrap justify-end gap-3">
+            <AppButton variant="primary" :loading="isSubmittingTransfer" @click="submitTransfer">
+              {{ isSubmittingTransfer ? 'Transferindo...' : 'Transferir estoque' }}
+            </AppButton>
+          </div>
+        </AppSectionCard>
+      </div>
+
+      <AppSectionCard class="grid gap-4 md:gap-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span class="app-kicker">Saldo atual</span>
+            <h2 class="mt-2 text-[1.25rem] text-foreground">Estoque por costureira</h2>
+          </div>
+          <strong class="text-sm font-bold text-foreground">{{ balances.length }} saldos</strong>
+        </div>
+
+        <div v-if="balances.length === 0">
+          <AppEmptyState
+            title="Nenhum saldo encontrado"
+            description="Ajuste os filtros ou registre entradas de estoque para visualizar os saldos."
+          />
+        </div>
+        <div v-else>
+          <div class="grid gap-4 md:hidden">
+            <AdminRecordCard
+              v-for="balance in balances"
+              :key="balance.id"
+              :kicker="balance.seamstress.name"
+              :title="balance.fabric.name"
+              :subtitle="[balance.fabric.category, balance.fabric.colorOrCollection].filter(Boolean).join(' • ')"
+            >
+              <AdminSummaryCard label="Saldo (m)" :value="balance.balanceMeters.toFixed(2)" />
+            </AdminRecordCard>
+          </div>
+
+          <div class="app-data-table-shell hidden md:block">
+            <table class="app-data-table">
               <thead>
                 <tr>
                   <th>Costureira</th>
@@ -314,26 +343,53 @@ onMounted(() => {
               <tbody>
                 <tr v-for="balance in balances" :key="balance.id">
                   <td>{{ balance.seamstress.name }}</td>
-                  <td>{{ balance.fabric.name }}<span v-if="balance.fabric.colorOrCollection"> • {{ balance.fabric.colorOrCollection }}</span></td>
+                  <td>
+                    {{ balance.fabric.name }}
+                    <span v-if="balance.fabric.colorOrCollection"> • {{ balance.fabric.colorOrCollection }}</span>
+                  </td>
                   <td>{{ balance.fabric.category }}</td>
-                  <td><strong>{{ balance.balanceMeters.toFixed(2) }}</strong></td>
+                  <td><strong class="text-foreground">{{ balance.balanceMeters.toFixed(2) }}</strong></td>
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
+      </AppSectionCard>
 
-        <div class="page-card table-card">
-          <div class="table-head">
-            <div>
-              <span class="page-kicker">Histórico</span>
-              <h2>Movimentações auditáveis</h2>
-            </div>
-            <strong>{{ movements.length }} registros</strong>
+      <AppSectionCard class="grid gap-4 md:gap-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span class="app-kicker">Histórico</span>
+            <h2 class="mt-2 text-[1.25rem] text-foreground">Movimentações auditáveis</h2>
+          </div>
+          <strong class="text-sm font-bold text-foreground">{{ movements.length }} registros</strong>
+        </div>
+
+        <div v-if="movements.length === 0">
+          <AppEmptyState
+            title="Nenhuma movimentação encontrada"
+            description="Ajuste os filtros ou registre movimentações para construir o histórico auditável."
+          />
+        </div>
+        <div v-else>
+          <div class="grid gap-4 md:hidden">
+            <AdminRecordCard
+              v-for="movement in movements"
+              :key="movement.id"
+              :kicker="new Date(movement.createdAt).toLocaleDateString('pt-BR')"
+              :title="movement.seamstress.name"
+              :subtitle="movement.fabric.name"
+            >
+              <div class="grid gap-3 sm:grid-cols-2">
+                <AdminSummaryCard label="Tipo" :value="movement.type" />
+                <AdminSummaryCard label="Metros" :value="movement.quantityMeters.toFixed(2)" />
+              </div>
+              <p class="text-sm leading-6 text-muted/76">{{ movement.quoteCode || movement.notes || 'Manual' }}</p>
+            </AdminRecordCard>
           </div>
 
-          <div class="table-shell">
-            <table>
+          <div class="app-data-table-shell hidden md:block">
+            <table class="app-data-table">
               <thead>
                 <tr>
                   <th>Data</th>
@@ -357,193 +413,7 @@ onMounted(() => {
             </table>
           </div>
         </div>
-      </template>
-    </div>
-  </section>
+      </AppSectionCard>
+    </template>
+  </AppPageShell>
 </template>
-
-<style scoped>
-.admin-shell {
-  padding: 24px 0 56px;
-}
-
-.admin-stack {
-  display: grid;
-  gap: 18px;
-}
-
-.page-card {
-  padding: 22px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(197, 160, 89, 0.16);
-  box-shadow: 0 18px 44px rgba(22, 22, 22, 0.08);
-}
-
-.page-card-hero {
-  display: grid;
-  gap: 18px;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  align-items: start;
-}
-
-.page-kicker {
-  display: inline-flex;
-  margin-bottom: 12px;
-  color: rgba(120, 84, 28, 0.92);
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-h1,
-h2 {
-  color: var(--text-dark);
-}
-
-h1 {
-  font-size: clamp(1.7rem, 3vw, 2.6rem);
-  line-height: 1.04;
-  margin-bottom: 10px;
-}
-
-h2 {
-  font-size: 1.25rem;
-}
-
-p,
-input,
-select,
-textarea,
-table {
-  color: rgba(61, 61, 61, 0.9);
-}
-
-.toolbar-stack,
-.card-grid,
-.sub-card,
-.field {
-  display: grid;
-  gap: 14px;
-}
-
-.toolbar-grid,
-.fields-grid {
-  display: grid;
-  gap: 14px;
-}
-
-.toolbar-grid,
-.fields-grid-2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.fields-grid-3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.toolbar-stack input,
-.toolbar-stack select,
-.field input,
-.field select,
-.field textarea {
-  width: 100%;
-  min-height: 50px;
-  padding: 12px 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(26, 26, 26, 0.12);
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.field textarea {
-  min-height: 110px;
-  resize: vertical;
-}
-
-.field span {
-  color: rgba(26, 26, 26, 0.82);
-  font-size: 0.84rem;
-  font-weight: 700;
-}
-
-.field-toggle {
-  align-content: end;
-}
-
-.field-toggle input {
-  width: 20px;
-  min-height: auto;
-  padding: 0;
-}
-
-.sub-card {
-  padding: 20px;
-  border-radius: 24px;
-  background: rgba(247, 239, 226, 0.56);
-  border: 1px solid rgba(197, 160, 89, 0.16);
-}
-
-.card-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.table-card {
-  display: grid;
-  gap: 16px;
-}
-
-.table-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
-}
-
-.table-shell {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  padding: 14px 12px;
-  border-bottom: 1px solid rgba(26, 26, 26, 0.08);
-  text-align: left;
-  vertical-align: top;
-}
-
-.primary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0 18px;
-  border-radius: 999px;
-  border: none;
-  background: var(--primary);
-  color: var(--white);
-  font-size: 0.84rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.primary-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-@media (max-width: 1080px) {
-  .page-card-hero,
-  .card-grid,
-  .toolbar-grid,
-  .fields-grid-2,
-  .fields-grid-3 {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

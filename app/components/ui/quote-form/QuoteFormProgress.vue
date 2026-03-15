@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Motion } from 'motion-v'
+import { cn } from '@/lib/utils'
 
 interface Step {
   id: string
@@ -17,26 +18,33 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <Motion class="mb-8" :initial="{ opacity: 0, y: -20 }" :animate="{ opacity: 1, y: 0 }"
-    :transition="{ duration: 0.5 }">
-    <div class="flex justify-between mb-2 relative px-2">
-      <Motion v-for="(step, index) in steps" :key="step.id" class="flex flex-col items-center relative z-10"
-        :whileHover="{ scale: 1.1 }">
-        <Motion :class="[
-          'w-4 h-4 rounded-full cursor-pointer transition-colors duration-300',
-          index < currentStep ? 'bg-[#C5A059]' : index === currentStep ? 'bg-[#C5A059] ring-4 ring-[#C5A059]/30' : 'bg-gray-300',
-        ]" :whileTap="{ scale: 0.95 }" @click="emit('select', index)" />
-        <span :class="[
-          'text-xs mt-1.5 hidden sm:block',
-          index === currentStep ? 'text-[#C5A059] font-medium' : 'text-gray-400',
-        ]">
+  <Motion class="mb-8" :initial="{ opacity: 0, y: -20 }" :animate="{ opacity: 1, y: 0 }" :transition="{ duration: 0.5 }">
+    <div class="relative flex justify-between px-2">
+      <Motion v-for="(step, index) in steps" :key="step.id" class="relative z-10 flex flex-col items-center" :whileHover="{ scale: 1.04 }">
+        <Motion
+          :class="cn(
+            'h-4 w-4 cursor-pointer rounded-full transition-colors duration-300',
+            index < currentStep
+              ? 'bg-primary'
+              : index === currentStep
+                ? 'bg-primary ring-4 ring-primary/25'
+                : 'bg-black/20',
+          )"
+          :whileTap="{ scale: 0.95 }"
+          @click="emit('select', index)"
+        />
+        <span :class="cn('mt-1.5 hidden text-xs sm:block', index === currentStep ? 'font-medium text-primary-strong' : 'text-muted/42')">
           {{ step.title }}
         </span>
       </Motion>
     </div>
-    <div class="w-full bg-gray-200 h-1 rounded-full overflow-hidden mt-2 relative">
-      <Motion class="h-full bg-[#C5A059] absolute top-0 left-0" :initial="{ width: 0 }"
-        :animate="{ width: `${(currentStep / (steps.length - 1)) * 100}%` }" :transition="{ duration: 0.3 }" />
+    <div class="relative mt-2 h-1 w-full overflow-hidden rounded-full bg-black/10">
+      <Motion
+        class="absolute left-0 top-0 h-full bg-primary"
+        :initial="{ width: 0 }"
+        :animate="{ width: `${(currentStep / (steps.length - 1)) * 100}%` }"
+        :transition="{ duration: 0.3 }"
+      />
     </div>
   </Motion>
 </template>

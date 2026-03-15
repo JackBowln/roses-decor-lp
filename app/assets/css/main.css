@@ -1,6 +1,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Montserrat:wght@100..900&display=swap');
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
+  --color-primary: 197 160 89;
+  --color-primary-strong: 180 142 72;
+  --color-cream: 249 247 242;
+  --color-surface: 255 255 255;
+  --color-surface-card: 255 255 255;
+  --color-surface-soft: 247 239 226;
+  --color-foreground: 26 26 26;
+  --color-muted: 61 61 61;
+  --color-line: 197 160 89;
+  --color-success: 32 141 87;
+  --color-warning: 183 126 32;
+  --color-danger: 177 57 57;
   --primary: #C5A059;
   --primary-hover: #B48E48;
   --bg-cream: #F9F7F2;
@@ -10,8 +26,13 @@
   --glass: rgba(255, 255, 255, 0.7);
   --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --shadow-card: 0 18px 44px rgba(22, 22, 22, 0.08);
+  --shadow-elevated: 0 20px 48px rgba(22, 22, 22, 0.12);
+  --shadow-sticky: 0 -8px 28px rgba(22, 22, 22, 0.08);
   --radius-lg: 16px;
   --radius-md: 8px;
+  --radius-card: 28px;
+  --radius-field: 18px;
 }
 
 * {
@@ -77,6 +98,49 @@ section[id] {
 
 .section-padding {
   padding: 80px 0;
+}
+
+@layer base {
+  ::selection {
+    background: rgb(var(--color-primary) / 0.22);
+    color: rgb(var(--color-foreground));
+  }
+}
+
+@layer components {
+  .app-kicker {
+    @apply inline-flex text-[0.76rem] font-bold uppercase tracking-[0.16em] text-primary-strong;
+  }
+
+  .app-control {
+    @apply min-h-touch w-full rounded-field border border-black/10 bg-white/90 px-4 text-sm text-foreground shadow-sm transition-colors duration-200 placeholder:text-muted focus-visible:border-primary focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20;
+  }
+
+  .app-data-table-shell {
+    @apply overflow-x-auto;
+  }
+
+  .app-data-table {
+    @apply min-w-full border-collapse text-sm text-muted;
+  }
+
+  .app-data-table th {
+    @apply border-b border-black/10 px-3 py-3 text-left text-[0.8rem] font-bold uppercase tracking-[0.1em] text-primary-strong;
+  }
+
+  .app-data-table td {
+    @apply border-b border-black/10 px-3 py-4 align-top;
+  }
+}
+
+@layer utilities {
+  .safe-pb {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .safe-bottom {
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
 }
 
 @media (max-width: 768px) {
