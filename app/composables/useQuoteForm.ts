@@ -1,19 +1,36 @@
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { getApiErrorMessage } from '@/lib/apiError'
+import { formatPhoneMask } from '@/lib/fieldMasks'
 import {
-  canPersistQuoteItem,
+  formatPublicQuoteSuccessDescription,
+  getPublicQuoteNextButtonLabel,
+  publicQuoteFlowConfig,
+} from '@/lib/publicQuoteConfig'
+import {
+  appendQuoteItemIfReady,
   createEmptyQuoteContact,
   createEmptyQuoteItem,
   createPublicPreQuotePayload,
+  extractLastQuoteItemForEditing,
+  formatPublicQuoteStatusLabel,
+  getPublicQuoteStepId,
   isPublicQuoteStepValid,
+  removeQuoteItemAt,
   type QuoteContact,
   type QuoteItem,
   type QuoteSubmissionResult,
 } from '@/lib/publicQuoteForm'
 import { createPublicPreQuote } from '@/lib/quoteWorkspaceApi'
-import { quoteFormOptions, quoteFormSteps } from '@/lib/site'
-import { formatPhoneMask } from '@/lib/fieldMasks'
+import { quoteFormOptions, quoteFormSteps, siteConfig } from '@/lib/site'
+
+const openExternalUrlWithFallback = (url: string) => {
+  const popup = window.open(url, '_blank', 'noopener,noreferrer')
+
+  if (!popup) {
+    window.location.href = url
+  }
+}
 
 export function useQuoteForm() {
   const currentItem = ref<QuoteItem>(createEmptyQuoteItem())
@@ -22,6 +39,9 @@ export function useQuoteForm() {
   const currentStep = ref(0)
   const isSubmitting = ref(false)
   const submissionResult = ref<QuoteSubmissionResult | null>(null)
+
+  const currentStepId = computed(() => getPublicQuoteStepId(currentStep.value))
+  const nextButtonLabel = computed(() => getPublicQuoteNextButtonLabel(currentStepId.value))
 
   const resetCurrentItem = () => {
     currentItem.value = createEmptyQuoteItem()
@@ -36,15 +56,11 @@ export function useQuoteForm() {
   }
 
   const persistCurrentItem = () => {
-    if (!canPersistQuoteItem(currentItem.value)) {
-      return
-    }
-
-    items.value.push({ ...currentItem.value })
+    items.value = appendQuoteItemIfReady(items.value, currentItem.value)
   }
 
   const nextStep = () => {
-    if (currentStep.value === 3) {
+    if (currentStepId.value === 'medidas') {
       persistCurrentItem()
     }
 
@@ -54,11 +70,12 @@ export function useQuoteForm() {
   }
 
   const prevStep = () => {
-    if (currentStep.value === 4 && items.value.length > 0) {
-      const lastItem = items.value.pop()
+    if (currentStepId.value === 'resumo') {
+      const restored = extractLastQuoteItemForEditing(items.value)
+      items.value = restored.items
 
-      if (lastItem) {
-        currentItem.value = { ...lastItem }
+      if (restored.item) {
+        currentItem.value = { ...restored.item }
       }
     }
 
@@ -73,7 +90,7 @@ export function useQuoteForm() {
   }
 
   const removeItem = (index: number) => {
-    items.value.splice(index, 1)
+    items.value = removeQuoteItemAt(items.value, index)
 
     if (items.value.length === 0) {
       resetCurrentItem()
@@ -81,14 +98,18 @@ export function useQuoteForm() {
     }
   }
 
+  const advanceWithDelay = (callback: () => void) => {
+    window.setTimeout(callback, publicQuoteFlowConfig.autoAdvanceDelayMs)
+  }
+
   const selectType = (type: string) => {
     currentItem.value.type = type as QuoteItem['type']
-    window.setTimeout(nextStep, 300)
+    advanceWithDelay(nextStep)
   }
 
   const selectEnvironment = (environment: string) => {
     currentItem.value.env = environment
-    window.setTimeout(nextStep, 300)
+    advanceWithDelay(nextStep)
   }
 
   const selectStep = (index: number) => {
@@ -96,7 +117,9 @@ export function useQuoteForm() {
       return
     }
 
-    if (index <= currentStep.value && index !== 4) {
+    const targetStepId = getPublicQuoteStepId(index)
+
+    if (index <= currentStep.value && targetStepId !== 'resumo') {
       currentStep.value = index
     }
   }
@@ -110,11 +133,7 @@ export function useQuoteForm() {
       return
     }
 
-    const popup = window.open(submissionResult.value.whatsappUrl, '_blank', 'noopener,noreferrer')
-
-    if (!popup) {
-      window.location.href = submissionResult.value.whatsappUrl
-    }
+    openExternalUrlWithFallback(submissionResult.value.whatsappUrl)
   }
 
   const finish = async () => {
@@ -133,10 +152,10 @@ export function useQuoteForm() {
       )
 
       submissionResult.value = response
-      toast.success(`Pré-orçamento ${response.preQuote.code} salvo com sucesso.`)
+      toast.success(`Pre-orcamento ${response.preQuote.code} salvo com sucesso.`)
     }
     catch (error) {
-      toast.error(getApiErrorMessage(error, 'Não foi possível salvar o pré-orçamento.'))
+      toast.error(getApiErrorMessage(error, 'Nao foi possivel salvar o pre-orcamento.'))
     }
     finally {
       isSubmitting.value = false
@@ -145,21 +164,29 @@ export function useQuoteForm() {
 
   const isStepValid = computed(() =>
     isPublicQuoteStepValid({
-      currentStep: currentStep.value,
+      stepId: currentStepId.value,
       currentItem: currentItem.value,
       items: items.value,
       contact: contact.value,
     }))
+
+  const successDescription = computed(() =>
+    submissionResult.value
+      ? formatPublicQuoteSuccessDescription(submissionResult.value.preQuote.code, siteConfig.brand.heroName)
+      : '')
 
   return {
     addAnotherRoom,
     contact,
     currentItem,
     currentStep,
+    currentStepId,
     finish,
+    formatPublicQuoteStatusLabel,
     isStepValid,
     isSubmitting,
     items,
+    nextButtonLabel,
     nextStep,
     openWhatsApp,
     prevStep,
@@ -171,6 +198,7 @@ export function useQuoteForm() {
     selectType,
     steps: quoteFormSteps,
     submissionResult,
+    successDescription,
     updateWhatsapp,
   }
 }

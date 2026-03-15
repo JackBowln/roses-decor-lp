@@ -1,3 +1,4 @@
+import { brandConfig, contactConfig } from '@/lib/appBrand'
 import { siteConfig } from '@/lib/site'
 import {
   buildPreQuoteBudgetDescription,
@@ -168,13 +169,13 @@ const buildPage = (input: PreQuotePdfInput, items: PreQuoteItemRecord[], pageInd
     color: COLORS.black,
   })
 
-  drawWrapped(commands, "Rose's", left, 750, 160, {
+  drawWrapped(commands, brandConfig.shortName, left, 750, 160, {
     size: 28,
     font: 'F3',
     color: COLORS.accent,
     maxLines: 1,
   })
-  drawText(commands, 'Roses Decor', left, 714, { size: 13, font: 'F2', color: COLORS.black })
+  drawText(commands, brandConfig.displayName, left, 714, { size: 13, font: 'F2', color: COLORS.black })
   drawText(commands, 'Pré-orçamento para cliente', left + 185, 714, { size: 12, font: 'F2', color: COLORS.black })
   drawText(commands, input.preQuote.code, PAGE_WIDTH - 120, 714, { size: 12, font: 'F2', color: COLORS.red })
 

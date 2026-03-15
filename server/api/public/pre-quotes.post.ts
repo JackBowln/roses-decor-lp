@@ -1,68 +1,14 @@
-import { createError, readBody } from 'h3'
-import { isValidEmail, isValidPhone } from '~~/app/lib/fieldMasks'
-import { buildWhatsAppUrl } from '~~/app/lib/site'
-import {
-  buildPublicPreQuoteWhatsAppMessage,
-  createPreQuoteItemsFromPublic,
-  type PublicPreQuoteContact,
-  type PublicPreQuoteItem,
-} from '~~/app/lib/quoteWorkspace'
-import { generatePreQuotePdf } from '~~/app/lib/preQuotePdf'
-import { createPublicPreQuoteEntry, saveWorkspaceDocument, updatePreQuoteDocumentPath } from '../../utils/quoteWorkspaceStore'
+import { readBody } from 'h3'
+import type { QuoteContact, QuoteItem } from '~~/app/lib/publicQuoteForm'
+import { createPublicPreQuoteSubmission } from '~~/server/utils/publicPreQuoteService'
 
 interface PublicPreQuotePayload {
-  customer: PublicPreQuoteContact
-  items: PublicPreQuoteItem[]
+  customer: QuoteContact
+  items: QuoteItem[]
 }
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<PublicPreQuotePayload>(event)
 
-  if (!body.customer?.name?.trim() || !body.customer?.whatsapp?.trim() || !body.customer?.location?.trim()) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Preencha nome, WhatsApp e localização para gerar o pré-orçamento.',
-    })
-  }
-
-  if (!isValidPhone(body.customer.whatsapp)) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Informe um WhatsApp válido com DDD.',
-    })
-  }
-
-  if (body.customer.email?.trim() && !isValidEmail(body.customer.email)) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Informe um e-mail válido ou deixe o campo em branco.',
-    })
-  }
-
-  if (!Array.isArray(body.items) || body.items.length === 0) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Inclua ao menos um item no pré-orçamento.',
-    })
-  }
-
-  const items = createPreQuoteItemsFromPublic(body.items)
-  const { customer, preQuote } = await createPublicPreQuoteEntry({
-    contact: body.customer,
-    items,
-    pdfPath: '',
-  })
-
-  const pdf = generatePreQuotePdf({ customer, preQuote })
-  const relativePath = `pre-quotes/${preQuote.id}/${pdf.filename}`
-  const pdfDocumentId = await saveWorkspaceDocument(relativePath, pdf.bytes)
-  const updatedPreQuote = await updatePreQuoteDocumentPath(preQuote.id, pdfDocumentId)
-  const whatsappMessage = buildPublicPreQuoteWhatsAppMessage(body.customer, updatedPreQuote)
-
-  return {
-    ok: true,
-    customer,
-    preQuote: updatedPreQuote,
-    whatsappUrl: buildWhatsAppUrl(whatsappMessage),
-  }
+  return createPublicPreQuoteSubmission(body)
 })
