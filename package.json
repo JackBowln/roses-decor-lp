@@ -7,7 +7,16 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "test": "node --loader ./tests/alias-loader.mjs --test tests/*.test.mjs",
+    "test": "npm run test:legacy",
+    "test:legacy": "node --loader ./tests/alias-loader.mjs --test tests/*.test.mjs",
+    "test:unit": "vitest run --config tests/setup/vitest.unit.config.ts",
+    "test:components": "vitest run --config tests/setup/vitest.components.config.ts",
+    "test:nuxt": "vitest run --config tests/setup/vitest.nuxt.config.ts",
+    "test:vitest": "npm run test:unit && npm run test:components && npm run test:nuxt",
+    "test:watch": "vitest --config tests/setup/vitest.unit.config.ts --watch",
+    "test:watch:components": "vitest --config tests/setup/vitest.components.config.ts --watch",
+    "test:watch:nuxt": "vitest --config tests/setup/vitest.nuxt.config.ts --watch",
+    "test:all": "npm run test:legacy && npm run test:vitest",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
@@ -19,11 +28,15 @@
     "vue-sonner": "^2.0.9"
   },
   "devDependencies": {
+    "@nuxt/test-utils": "^3.19.2",
     "@nuxt/image": "^2.0.0",
     "@nuxtjs/tailwindcss": "^6.14.0",
+    "@vue/test-utils": "^2.4.6",
     "clsx": "^2.1.1",
+    "happy-dom": "^17.6.3",
     "lucide-vue-next": "^0.577.0",
     "motion-v": "^2.0.0",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "vitest": "^3.2.4"
   }
 }
