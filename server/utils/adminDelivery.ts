@@ -1,11 +1,13 @@
 import { createError } from 'h3'
 import { generateQuotePdf } from '~~/app/lib/adminQuotePdf'
 import type { AdminQuoteRecord, QuoteDocumentKind } from '~~/app/lib/adminQuote'
+import { buildQuoteDeliveryEmailHtml, documentBranding } from '~~/app/lib/documentContent'
 
 interface EmailDeliveryInput {
   to: string[]
   subject: string
-  html: string
+  html?: string
+  recipientName?: string
   record: AdminQuoteRecord
   kind: QuoteDocumentKind
 }
@@ -31,11 +33,11 @@ export const sendQuoteEmail = async (input: EmailDeliveryInput) => {
     body: JSON.stringify({
       sender: {
         email: config.brevoSenderEmail,
-        name: config.brevoSenderName || 'Roses Decor',
+        name: config.brevoSenderName || documentBranding.senderName,
       },
       to: input.to.map((email) => ({ email })),
       subject: input.subject,
-      htmlContent: input.html,
+      htmlContent: input.html || buildQuoteDeliveryEmailHtml(input.recipientName),
       attachment: [
         {
           name: pdf.filename,

@@ -1,7 +1,8 @@
 import { createError, readBody } from 'h3'
-import { assertAdminSession } from '../../utils/adminAuth'
-import { sendQuoteEmail } from '../../utils/adminDelivery'
-import { createInstallerDispatch } from '../../utils/quoteWorkspaceStore'
+import { assertAdminSession } from '~~/server/utils/adminAuth'
+import { sendQuoteEmail } from '~~/server/utils/adminDelivery'
+import { createInstallerDispatch } from '~~/server/utils/quoteWorkspaceStore'
+import { buildQuoteDeliveryEmailHtml, quoteDeliverySubjects } from '~~/app/lib/documentContent'
 import type { AdminQuoteRecord, QuoteDocumentKind } from '~~/app/lib/adminQuote'
 
 interface DeliveryPayload {
@@ -15,12 +16,6 @@ interface DeliveryPayload {
     email?: string
     whatsapp?: string
   }
-}
-
-const subjects: Record<QuoteDocumentKind, string> = {
-  cliente: 'Seu orçamento Roses Decor',
-  costureira: 'Pedido de costura Roses Decor',
-  instalador: 'Pedido de instalação Roses Decor',
 }
 
 const resolveErrorMessage = (error: unknown) => {
@@ -46,22 +41,23 @@ export default defineEventHandler(async (event) => {
   if (!body.recipient?.email) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'Informe um e-mail válido para envio.',
+      statusMessage: 'Informe um e-mail valido para envio.',
     })
   }
 
   if (body.kind === 'instalador' && (!body.quoteId || !body.installerId)) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'Salve o orçamento e selecione um instalador antes de enviar a ficha.',
+      statusMessage: 'Salve o orcamento e selecione um instalador antes de enviar a ficha.',
     })
   }
 
   try {
     const response = await sendQuoteEmail({
       to: [body.recipient.email],
-      subject: subjects[body.kind],
-      html: `<p>Olá ${body.recipient.name || ''},</p><p>Segue em anexo o documento em PDF.</p><p>Atenciosamente,<br>Roses Decor</p>`,
+      subject: quoteDeliverySubjects[body.kind],
+      html: buildQuoteDeliveryEmailHtml(body.recipient.name),
+      recipientName: body.recipient.name,
       record: body.record,
       kind: body.kind,
     })

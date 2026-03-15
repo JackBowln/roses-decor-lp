@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { uiFallbacks } from '@/lib/appFallbacks'
 import { computed } from 'vue'
 import { formatArea, formatBlackoutLabel, formatCurrency, resolveInstallationMeters } from '@/lib/adminQuote'
 import { getQuoteLifecycleTone } from '@/lib/sales'
@@ -58,23 +59,23 @@ const customerAddress = computed(() => {
     record.customer.neighborhood,
     record.customer.city ? `${record.customer.city}${record.customer.state ? `/${record.customer.state}` : ''}` : '',
     record.customer.zipcode ? `CEP ${record.customer.zipcode}` : '',
-  ].filter(Boolean).join(' • ') || 'Endereço pendente'
+  ].filter(Boolean).join(' • ') || uiFallbacks.pendingAddress
 })
 
 const installationItems = computed(() =>
   quote.value.record.items.filter((item) => item.installationIncluded === 'SIM'))
 
 const installationSummary = computed(() => ({
-  date: quote.value.record.project.installationDate || 'Pendente',
+  date: quote.value.record.project.installationDate || uiFallbacks.pending,
   totalMeters: installationItems.value.reduce((total, item) => total + resolveInstallationMeters(item), 0),
   itemCount: installationItems.value.length,
 }))
 
 const seamstressContact = computed(() =>
-  quote.value.record.seamstress.email || quote.value.record.seamstress.whatsapp || 'Contato pendente')
+  quote.value.record.seamstress.email || quote.value.record.seamstress.whatsapp || uiFallbacks.pendingContact)
 
 const installerContact = computed(() =>
-  quote.value.record.installer.email || quote.value.record.installer.whatsapp || 'Contato pendente')
+  quote.value.record.installer.email || quote.value.record.installer.whatsapp || uiFallbacks.pendingContact)
 
 const fabricUsageSummary = computed(() => {
   const summary = new Map<string, {
@@ -262,7 +263,7 @@ const buildStockConsumptionLabel = (item: typeof quote.value.record.items[number
           <div class="grid gap-3 sm:grid-cols-2">
             <AdminSummaryCard label="Pré-orçamento" :value="sale.preQuoteCode || 'Sem origem do site'" />
             <AdminSummaryCard label="Código do orçamento" :value="quote.record.project.code" />
-            <AdminSummaryCard label="Data do orçamento" :value="quote.record.project.createdAt || 'Pendente'" />
+            <AdminSummaryCard label="Data do orçamento" :value="quote.record.project.createdAt || uiFallbacks.pending" />
             <AdminSummaryCard label="Data da venda" :value="new Date(sale.soldAt).toLocaleDateString('pt-BR')" />
           </div>
         </AdminRecordCard>

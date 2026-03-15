@@ -1,41 +1,45 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   BriefcaseBusiness,
   ChevronDown,
-  ClipboardList,
-  Hammer,
   LogOut,
-  Palette,
-  Scissors,
-  TrendingUp,
-  Users,
-  Warehouse,
 } from 'lucide-vue-next'
+import type { AdminNavigationGroup } from '@/lib/adminNavigation'
+import { adminHeaderConfig } from '@/lib/adminNavigation'
 import { cn } from '@/lib/utils'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
+import { useClickOutside } from '@/composables/useClickOutside'
+import { useExpandableSet } from '@/composables/useExpandableSet'
+import { useStickyThreshold } from '@/composables/useStickyThreshold'
 import MenuToggleIcon from '@/components/ui/MenuToggleIcon.vue'
 
-type HeaderLink = {
-  label: string
-  to: string
-  description: string
-  icon: Component
-}
-
-type HeaderGroup = {
-  id: string
-  label: string
-  icon: Component
-  links: HeaderLink[]
-}
-
 const props = withDefaults(defineProps<{
-  groups: HeaderGroup[]
+  groups: AdminNavigationGroup[]
   authenticated?: boolean
   loggingOut?: boolean
+  brandLabel?: string
+  brandName?: string
+  brandDestination?: string
+  quickAction?: {
+    label: string
+    to: string
+  } | null
+  logoutLabel?: string
+  logoutLoadingLabel?: string
+  mobileMenuAriaLabel?: string
+  mobileLogoutLabel?: string
 }>(), {
   authenticated: false,
   loggingOut: false,
+  brandLabel: adminHeaderConfig.brandLabel,
+  brandName: adminHeaderConfig.brandName,
+  brandDestination: adminHeaderConfig.brandDestination,
+  quickAction: () => adminHeaderConfig.quickAction,
+  logoutLabel: adminHeaderConfig.logoutLabel,
+  logoutLoadingLabel: adminHeaderConfig.logoutLoadingLabel,
+  mobileMenuAriaLabel: adminHeaderConfig.mobileMenuAriaLabel,
+  mobileLogoutLabel: adminHeaderConfig.mobileLogoutLabel,
 })
 
 const emit = defineEmits<{
@@ -43,108 +47,62 @@ const emit = defineEmits<{
 }>()
 
 const route = useRoute()
+const rootRef = ref<HTMLElement | null>(null)
 const mobileMenuOpen = ref(false)
 const openDesktopGroupId = ref<string | null>(null)
-const expandedMobileGroups = ref<string[]>([])
-const scrolled = ref(false)
+const {
+  expandedValues: expandedMobileGroups,
+  isExpanded: isMobileGroupExpanded,
+  replaceExpanded,
+  toggleExpanded: toggleMobileGroup,
+} = useExpandableSet<string>([])
+const { scrolled } = useStickyThreshold(10)
 
 const activeGroupId = computed(() =>
   props.groups.find((group) => group.links.some((link) => route.path === link.to))?.id || null)
+
+const isDesktopDropdownOpen = computed(() => openDesktopGroupId.value !== null)
+
+const isLinkActive = (to: string) => route.path === to
+const isGroupActive = (group: AdminNavigationGroup) => group.links.some((link) => isLinkActive(link.to))
 
 const toggleDesktopGroup = (groupId: string) => {
   openDesktopGroupId.value = openDesktopGroupId.value === groupId ? null : groupId
 }
 
-const toggleMobileGroup = (groupId: string) => {
-  expandedMobileGroups.value = expandedMobileGroups.value.includes(groupId)
-    ? expandedMobileGroups.value.filter((entry) => entry !== groupId)
-    : [...expandedMobileGroups.value, groupId]
-}
-
-const isMobileGroupExpanded = (groupId: string) => expandedMobileGroups.value.includes(groupId)
-const isLinkActive = (to: string) => route.path === to
-const isGroupActive = (group: HeaderGroup) => group.links.some((link) => isLinkActive(link.to))
-
-const handleScroll = () => {
-  if (!import.meta.client) {
-    return
-  }
-
-  scrolled.value = window.scrollY > 10
-}
-
-const handleDocumentClick = (event: MouseEvent) => {
-  const target = event.target
-
-  if (!(target instanceof HTMLElement) || target.closest('[data-admin-header-root]')) {
-    return
-  }
-
-  openDesktopGroupId.value = null
-}
-
-watch(() => route.path, () => {
+const closeMenus = () => {
   mobileMenuOpen.value = false
   openDesktopGroupId.value = null
+}
+
+useBodyScrollLock(mobileMenuOpen)
+useClickOutside(rootRef, () => {
+  openDesktopGroupId.value = null
+}, {
+  enabled: isDesktopDropdownOpen,
 })
 
-watch(mobileMenuOpen, (isOpen) => {
-  if (!import.meta.client) {
-    return
-  }
-
-  document.body.style.overflow = isOpen ? 'hidden' : ''
+watch(() => route.path, () => {
+  closeMenus()
 })
 
-onMounted(() => {
-  expandedMobileGroups.value = activeGroupId.value ? [activeGroupId.value] : [props.groups[0]?.id].filter(Boolean) as string[]
-  handleScroll()
-  window.addEventListener('scroll', handleScroll, { passive: true })
-  document.addEventListener('click', handleDocumentClick)
-})
+watch(
+  [activeGroupId, () => props.groups.map((group) => group.id).join('|')],
+  ([groupId]) => {
+    if (!props.groups.length) {
+      replaceExpanded([])
+      return
+    }
 
-onBeforeUnmount(() => {
-  if (import.meta.client) {
-    document.body.style.overflow = ''
-    window.removeEventListener('scroll', handleScroll)
-    document.removeEventListener('click', handleDocumentClick)
-  }
-})
-
-const commercialQuickLinks: HeaderLink[] = [
-  {
-    label: 'Clientes',
-    to: '/gestao/clientes',
-    description: 'Histórico e relacionamento por cliente.',
-    icon: Users,
+    replaceExpanded(groupId ? [String(groupId)] : [props.groups[0].id])
   },
-  {
-    label: 'Vendas',
-    to: '/gestao/vendas',
-    description: 'Fechamento, recebimento e dashboards.',
-    icon: TrendingUp,
-  },
-]
-
-const operationalQuickLinks: HeaderLink[] = [
-  {
-    label: 'Costureiras',
-    to: '/gestao/costureiras',
-    description: 'Cadastro e execução de costura.',
-    icon: Scissors,
-  },
-  {
-    label: 'Estoque',
-    to: '/gestao/estoque',
-    description: 'Saldo, entradas, saídas e consumo.',
-    icon: Warehouse,
-  },
-]
+  { immediate: true },
+)
 </script>
 
 <template>
   <header
-    data-admin-header-root
+    ref="rootRef"
     :class="cn(
       'sticky top-0 z-sticky border-b border-transparent',
       scrolled
@@ -155,15 +113,15 @@ const operationalQuickLinks: HeaderLink[] = [
     <nav class="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-4">
       <div class="flex min-w-0 items-center gap-3 md:gap-5">
         <NuxtLink
-          to="/gestao/pre-orcamentos"
+          :to="brandDestination"
           class="flex min-w-0 items-center gap-3 rounded-field px-2 py-2 transition-colors hover:bg-white/65"
         >
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] border border-primary/15 bg-white/88 text-primary shadow-card">
             <BriefcaseBusiness class="h-5 w-5" />
           </div>
           <div class="min-w-0">
-            <span class="app-kicker mb-0.5 block">Área interna</span>
-            <strong class="block truncate text-sm text-foreground md:text-base">Roses Decor</strong>
+            <span class="app-kicker mb-0.5 block">{{ brandLabel }}</span>
+            <strong class="block truncate text-sm text-foreground md:text-base">{{ brandName }}</strong>
           </div>
         </NuxtLink>
 
@@ -196,7 +154,7 @@ const operationalQuickLinks: HeaderLink[] = [
             <Transition name="header-dropdown">
               <div
                 v-if="openDesktopGroupId === group.id"
-                class="absolute left-0 top-full mt-3 w-[min(92vw,720px)] rounded-[24px] border border-line/15 bg-white/95 backdrop-blur-sm p-3 shadow-elevated"
+                class="absolute left-0 top-full mt-3 w-[min(92vw,720px)] rounded-[24px] border border-line/15 bg-white/95 p-3 shadow-elevated backdrop-blur-sm"
               >
                 <div class="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
                   <div class="grid gap-2">
@@ -228,7 +186,7 @@ const operationalQuickLinks: HeaderLink[] = [
                     </div>
                     <div class="grid gap-2">
                       <NuxtLink
-                        v-for="link in group.id === 'comercial' ? commercialQuickLinks : operationalQuickLinks"
+                        v-for="link in group.quickLinks"
                         :key="link.to"
                         :to="link.to"
                         class="flex items-center gap-2 rounded-[16px] px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white/80"
@@ -237,11 +195,7 @@ const operationalQuickLinks: HeaderLink[] = [
                         <span>{{ link.label }}</span>
                       </NuxtLink>
                     </div>
-                    <p class="text-sm leading-6 text-muted/76">
-                      {{ group.id === 'comercial'
-                        ? 'Pré-orçamentos, orçamentos e vendas ficam no mesmo fluxo comercial.'
-                        : 'Costureiras, instaladores, tecidos e estoque ficam agrupados na operação.' }}
-                    </p>
+                    <p class="text-sm leading-6 text-muted/76">{{ group.summary }}</p>
                   </div>
                 </div>
               </div>
@@ -251,8 +205,8 @@ const operationalQuickLinks: HeaderLink[] = [
       </div>
 
       <div class="hidden items-center gap-2 md:flex">
-        <AppButton to="/gestao/vendas" variant="ghost">
-          Ver vendas
+        <AppButton v-if="quickAction" :to="quickAction.to" variant="ghost">
+          {{ quickAction.label }}
         </AppButton>
         <AppButton
           v-if="authenticated"
@@ -261,7 +215,7 @@ const operationalQuickLinks: HeaderLink[] = [
           @click="emit('logout')"
         >
           <LogOut class="h-4 w-4" />
-          {{ loggingOut ? 'Saindo...' : 'Sair' }}
+          {{ loggingOut ? logoutLoadingLabel : logoutLabel }}
         </AppButton>
       </div>
 
@@ -271,7 +225,7 @@ const operationalQuickLinks: HeaderLink[] = [
         class="md:hidden"
         :aria-expanded="mobileMenuOpen"
         aria-controls="admin-mobile-menu"
-        aria-label="Abrir menu da gestão"
+        :aria-label="mobileMenuAriaLabel"
         @click="mobileMenuOpen = !mobileMenuOpen"
       >
         <MenuToggleIcon :open="mobileMenuOpen" class="h-5 w-5" :duration="300" />
@@ -290,7 +244,7 @@ const operationalQuickLinks: HeaderLink[] = [
             class="fixed inset-x-0 top-16 bottom-0 z-overlay overflow-y-auto border-t border-line/15 bg-[#f8f4ed]/96 px-4 py-4 backdrop-blur"
             @click.stop
           >
-            <div class="mx-auto grid w-full max-w-6xl gap-3 safe-pb bg-white/95 backdrop-blur-sm">
+            <div class="mx-auto grid w-full max-w-6xl gap-3 safe-pb">
               <section
                 v-for="group in groups"
                 :key="group.id"
@@ -307,9 +261,7 @@ const operationalQuickLinks: HeaderLink[] = [
                     </div>
                     <div>
                       <span class="block text-sm font-bold text-foreground">{{ group.label }}</span>
-                      <span class="block text-xs text-muted/72">
-                        {{ group.id === 'comercial' ? 'Relacionamento e fechamento' : 'Produção e controle interno' }}
-                      </span>
+                      <span class="block text-xs text-muted/72">{{ group.summary }}</span>
                     </div>
                   </div>
                   <ChevronDown
@@ -331,7 +283,7 @@ const operationalQuickLinks: HeaderLink[] = [
                         ? 'bg-primary text-white'
                         : 'bg-surface-soft/72 text-foreground hover:bg-surface-soft',
                     )"
-                    @click="mobileMenuOpen = false"
+                    @click="closeMenus"
                   >
                     <div :class="cn(
                       'flex h-10 w-10 items-center justify-center rounded-[12px] border',
@@ -352,6 +304,16 @@ const operationalQuickLinks: HeaderLink[] = [
               </section>
 
               <AppButton
+                v-if="quickAction"
+                block
+                :to="quickAction.to"
+                variant="ghost"
+                @click="closeMenus"
+              >
+                {{ quickAction.label }}
+              </AppButton>
+
+              <AppButton
                 v-if="authenticated"
                 block
                 :loading="loggingOut"
@@ -359,7 +321,7 @@ const operationalQuickLinks: HeaderLink[] = [
                 @click="emit('logout')"
               >
                 <LogOut class="h-4 w-4" />
-                {{ loggingOut ? 'Saindo...' : 'Sair da gestão' }}
+                {{ loggingOut ? logoutLoadingLabel : mobileLogoutLabel }}
               </AppButton>
             </div>
           </div>

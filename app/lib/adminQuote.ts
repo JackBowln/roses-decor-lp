@@ -1,4 +1,7 @@
 import { isValidEmail, isValidPhone } from '@/lib/fieldMasks'
+import { brandConfig } from '@/lib/appBrand'
+import { uiFallbacks, withFallback, withPendingFallback } from '@/lib/appFallbacks'
+import { quoteDocumentLabels } from '@/lib/documentContent'
 
 export type QuoteTabId = 'resumo' | 'cliente' | 'projeto' | 'itens' | 'costureira' | 'instalador' | 'envio'
 export type QuoteDocumentKind = 'cliente' | 'costureira' | 'instalador'
@@ -197,7 +200,7 @@ const createQuoteCustomerDefaults = (): QuoteCustomer => ({
 
 const createQuoteProjectDefaults = (): Omit<QuoteProject, 'code' | 'createdAt' | 'validUntil'> => ({
   installationDate: '',
-  salesRep: 'Roses Decor',
+  salesRep: brandConfig.salesRepresentative,
   paymentMethod: 'A combinar',
   paymentTerms: '50% no pedido e 50% na entrega.',
   deliveryLeadTime: '20 dias',
@@ -517,15 +520,15 @@ export const getClientDocumentLines = (record: AdminQuoteRecord) => {
   const paymentOptions = calculatePaymentOptions(record)
 
   return [
-    `Cliente: ${record.customer.name || 'Não informado'}`,
-    `Bairro: ${record.customer.neighborhood || 'Não informado'} | Cidade: ${record.customer.city || 'Não informada'}${record.customer.state ? `/${record.customer.state}` : ''}`,
+    `Cliente: ${withFallback(record.customer.name)}`,
+    `Bairro: ${withFallback(record.customer.neighborhood)} | Cidade: ${withFallback(record.customer.city, uiFallbacks.notInformedFemale)}${record.customer.state ? `/${record.customer.state}` : ''}`,
     `Fone: ${record.customer.phone || 'Sem telefone'} | E-mail: ${record.customer.email || 'Sem e-mail'}`,
     `Data do orçamento: ${record.project.createdAt} | Código: ${record.project.code}`,
     '',
     'MEMORIA RESUMIDA',
     ...record.items.flatMap((item, index) => [
       `${index + 1}. ${item.room || 'AMBIENTE'} | ${buildBudgetDescription(item)}`,
-      `   Vao: ${item.openingLabel || 'Nao informado'} | Medidas: ${formatArea(item.width, item.height)} | Quantidade: ${item.quantity}`,
+      `   Vao: ${withFallback(item.openingLabel)} | Medidas: ${formatArea(item.width, item.height)} | Quantidade: ${item.quantity}`,
       `   Valor total: ${formatCurrency(calculateLineItemTotal(item))}`,
       item.notes ? `   Observacoes: ${item.notes}` : '',
     ].filter(Boolean)),
@@ -545,8 +548,8 @@ export const getClientDocumentLines = (record: AdminQuoteRecord) => {
 
 export const getSeamstressDocumentLines = (record: AdminQuoteRecord) => [
   `Pedido de costura | Projeto ${record.project.code}`,
-  `Cliente final: ${record.customer.name || 'Não informado'} | Cidade: ${record.customer.city || 'Não informada'}`,
-  `Responsável: ${record.seamstress.name || 'Não informado'} | Contato: ${record.seamstress.email || record.seamstress.whatsapp || 'Pendente'}`,
+  `Cliente final: ${withFallback(record.customer.name)} | Cidade: ${withFallback(record.customer.city, uiFallbacks.notInformedFemale)}`,
+  `Responsavel: ${withFallback(record.seamstress.name)} | Contato: ${withPendingFallback(record.seamstress.email || record.seamstress.whatsapp, uiFallbacks.pendingContact)}`,
   '',
   ...record.items.flatMap((item, index) => [
     `${index + 1}. ${item.room || 'Ambiente'} | ${item.openingLabel || 'Vão'}`,
@@ -562,10 +565,10 @@ export const getSeamstressDocumentLines = (record: AdminQuoteRecord) => [
 
 export const getInstallerDocumentLines = (record: AdminQuoteRecord) => [
   `Pedido de instalação | Projeto ${record.project.code}`,
-  `Cliente: ${record.customer.name || 'Não informado'} | Telefone: ${record.customer.phone || 'Não informado'}`,
-  `Endereço: ${record.customer.address || 'Pendente'}${record.customer.complement ? `, ${record.customer.complement}` : ''}${record.customer.neighborhood ? `, ${record.customer.neighborhood}` : ''}${record.customer.city ? `, ${record.customer.city}` : ''}${record.customer.state ? `/${record.customer.state}` : ''}${record.customer.zipcode ? ` | CEP ${record.customer.zipcode}` : ''}`,
-  `Instalador: ${record.installer.name || 'Não informado'} | Contato: ${record.installer.email || record.installer.whatsapp || 'Pendente'}`,
-  `Data de instalação/entrega: ${record.project.installationDate || 'Pendente'}`,
+  `Cliente: ${withFallback(record.customer.name)} | Telefone: ${withFallback(record.customer.phone)}`,
+  `Endereco: ${withPendingFallback(record.customer.address, uiFallbacks.pendingAddress)}${record.customer.complement ? `, ${record.customer.complement}` : ''}${record.customer.neighborhood ? `, ${record.customer.neighborhood}` : ''}${record.customer.city ? `, ${record.customer.city}` : ''}${record.customer.state ? `/${record.customer.state}` : ''}${record.customer.zipcode ? ` | CEP ${record.customer.zipcode}` : ''}`,
+  `Instalador: ${withFallback(record.installer.name)} | Contato: ${withPendingFallback(record.installer.email || record.installer.whatsapp, uiFallbacks.pendingContact)}`,
+  `Data de instalacao/entrega: ${withPendingFallback(record.project.installationDate)}`,
   `Total de metros de instalação: ${getInstallationMetersTotal(record).toFixed(2)} m`,
   '',
   ...getInstallableItems(record).flatMap((item, index) => [
@@ -587,19 +590,19 @@ export const getDocumentSummary = (record: AdminQuoteRecord, kind: QuoteDocument
   switch (kind) {
     case 'cliente':
       return {
-        title: 'Orçamento do cliente',
+        title: quoteDocumentLabels.cliente,
         filename: `${filenameBase}.pdf`,
         lines: getClientDocumentLines(record),
       }
     case 'costureira':
       return {
-        title: 'Pedido da costureira',
+        title: quoteDocumentLabels.costureira,
         filename: `${filenameBase}.pdf`,
         lines: getSeamstressDocumentLines(record),
       }
     case 'instalador':
       return {
-        title: 'Pedido do instalador',
+        title: quoteDocumentLabels.instalador,
         filename: `${filenameBase}.pdf`,
         lines: getInstallerDocumentLines(record),
       }

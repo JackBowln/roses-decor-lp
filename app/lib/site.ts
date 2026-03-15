@@ -1,3 +1,6 @@
+import { brandConfig, contactConfig } from '@/lib/appBrand'
+import { publicQuoteFlowConfig, publicQuoteOptions, publicQuoteSteps } from '@/lib/publicQuoteConfig'
+
 export interface NavigationLink {
   label: string
   to: string
@@ -16,21 +19,24 @@ export const sectionIds = {
 
 export const siteConfig = {
   brand: {
-    shortName: "Rose's",
-    heroName: 'Roses Decor',
-    fullName: "Rose's Cortinas e Persianas",
-    tagline: 'Cortinas e Persianas sob medida.',
+    shortName: brandConfig.shortName,
+    heroName: brandConfig.displayName,
+    fullName: brandConfig.fullName,
+    tagline: brandConfig.tagline,
+    subLabel: brandConfig.subLabel,
+    internalAreaLabel: brandConfig.internalAreaLabel,
   },
   seo: {
     title: "Rose's Cortinas e Persianas | Design sob Medida Premium",
     description:
-      'Elegância e sofisticação em cortinas e persianas premium sob medida no Brasil. Transforme seu ambiente com exclusividade.',
+      'Elegancia e sofisticacao em cortinas e persianas premium sob medida no Brasil. Transforme seu ambiente com exclusividade.',
   },
   contact: {
-    whatsappNumber: '5527998220461',
-    whatsappDisplay: '+55 27 99822-0461',
-    instagramHandle: '@roses_cortinas_persianas',
-    instagramUrl: 'https://www.instagram.com/roses_cortinas_persianas/',
+    whatsappNumber: contactConfig.whatsappNumber,
+    whatsappDisplay: contactConfig.whatsappDisplay,
+    instagramHandle: contactConfig.instagramHandle,
+    instagramUrl: contactConfig.instagramUrl,
+    companyEmail: contactConfig.companyEmail,
   },
   hero: {
     badge: 'Alta Costura para Janelas',
@@ -38,48 +44,35 @@ export const siteConfig = {
     rotatingWords: ['elegantes', 'sofisticados', 'exclusivos', 'modernos'],
     subtitle: 'com cortinas sob medida',
     description:
-      'Design exclusivo, materiais premium e caimento impecável. Vestimos sua casa com a elegância que apenas a Roses Decor entrega.',
+      'Design exclusivo, materiais premium e caimento impecavel. Vestimos sua casa com a elegancia que apenas a Roses Decor entrega.',
     mediaSrc: 'https://videos.pexels.com/video-files/4462151/4462151-uhd_2732_1440_25fps.mp4',
     posterSrc:
       'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=1920&auto=format&fit=crop',
     bgImageSrc:
       'https://images.unsplash.com/photo-1513694203232-719a280e022f?q=80&w=1920&auto=format&fit=crop',
-    date: 'Sofisticação',
-    scrollToExpand: 'Descubra a Elegância',
+    date: 'Sofisticacao',
+    scrollToExpand: 'Descubra a Elegancia',
   },
   cta: {
-    quote: 'Solicitar Orçamento Grátis',
-    whatsapp: 'Falar no WhatsApp',
+    quote: publicQuoteFlowConfig.section.title,
+    whatsapp: publicQuoteFlowConfig.success.whatsappActionLabel,
   },
 } as const
 
 export const navigationLinks: NavigationLink[] = [
   { label: 'Produtos', to: `/#${sectionIds.products}` },
-  { label: 'Orçamento', to: `/#${sectionIds.preQuote}`, variant: 'primary' },
+  { label: 'Orcamento', to: `/#${sectionIds.preQuote}`, variant: 'primary' },
 ]
 
 export const serviceHighlights = [
   'Cortinas em Tecido',
   'Persianas Modernas',
-  'Automatização',
-  'Instalação Profissional',
+  'Automatizacao',
+  'Instalacao Profissional',
 ] as const
 
-export const quoteFormSteps: QuoteStep[] = [
-  { id: 'produto', title: 'Produto' },
-  { id: 'ambiente', title: 'Ambiente' },
-  { id: 'material', title: 'Material' },
-  { id: 'medidas', title: 'Medidas' },
-  { id: 'resumo', title: 'Resumo' },
-  { id: 'contato', title: 'Contato' },
-]
-
-export const quoteFormOptions = {
-  environments: ['Sala', 'Quarto', 'Escritório', 'Cozinha', 'Outro'],
-  tecidos: ['Linho', 'Linho Rústico', 'Voil', 'Não sei ainda'],
-  blackouts: ['70%', '100%', 'Sem Blackout'],
-  persianas: ['Rolo', 'Madeira', 'Double Vision', 'Romana'],
-} as const
+export const quoteFormSteps: QuoteStep[] = publicQuoteSteps
+export const quoteFormOptions = publicQuoteOptions
 
 export const whatsappUrl = `https://wa.me/${siteConfig.contact.whatsappNumber}`
 

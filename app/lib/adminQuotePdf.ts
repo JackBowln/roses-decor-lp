@@ -8,6 +8,8 @@ import {
   type QuoteDocumentKind,
 } from '@/lib/adminQuote'
 import { buildInstallerInstallationSummary } from '@/lib/quoteWorkspace'
+import { uiFallbacks } from '@/lib/appFallbacks'
+import { documentBranding, quoteDocumentTitles } from '@/lib/documentContent'
 import { siteConfig } from '@/lib/site'
 
 interface PdfTextLine {
@@ -60,7 +62,7 @@ const normalizeText = (value: string) =>
 const byteLength = (value: string) => encoder.encode(value).length
 const colorToPdf = ([r, g, b]: PdfRgbColor) => `${r} ${g} ${b}`
 const estimateLineWidth = (text: string, size: number) => text.length * size * 0.52
-const COMPANY_EMAIL = 'rose.designerinteriores@gmail.com'
+const COMPANY_EMAIL = documentBranding.footerEmail
 
 const monthLabels = [
   'Janeiro',
@@ -359,7 +361,7 @@ const drawOrderDocumentHeader = (input: {
   const customerCity = record.customer.city || 'Vila Velha'
   const customerLines = getCustomerAddressLines(record)
 
-  drawCenteredText(commands, "Rose's Decor - Decoracao de Interiores", PAGE_WIDTH / 2, 800, {
+  drawCenteredText(commands, documentBranding.signature, PAGE_WIDTH / 2, 800, {
     size: 18,
     color: COLORS.brandWine,
     font: 'F3',
@@ -748,11 +750,11 @@ const createOperationalQuoteStreams = (record: AdminQuoteRecord, kind: 'costurei
   const columns = getOrderDocumentColumns(false)
   const rows = kind === 'costureira' ? buildSeamstressRows(record) : buildInstallerRows(record)
   const installerSummary = kind === 'instalador' ? buildInstallerInstallationSummary(record) : null
-  const documentTitle = kind === 'costureira' ? 'PEDIDO DE COSTURA' : 'PEDIDO DE INSTALACAO'
+  const documentTitle = kind === 'costureira' ? quoteDocumentTitles.costureira : quoteDocumentTitles.instalador
   const responsibleName = kind === 'costureira' ? record.seamstress.name : record.installer.name
   const responsibleContact = kind === 'costureira'
-    ? (record.seamstress.email || record.seamstress.whatsapp || 'Pendente')
-    : (record.installer.email || record.installer.whatsapp || 'Pendente')
+    ? (record.seamstress.email || record.seamstress.whatsapp || uiFallbacks.pending)
+    : (record.installer.email || record.installer.whatsapp || uiFallbacks.pending)
   const operationalNotes = kind === 'costureira'
     ? (record.seamstress.notes || record.project.notes || 'Sem observacoes adicionais para a confeccao.')
     : (record.installer.notes || record.project.notes || 'Sem observacoes adicionais para a instalacao.')

@@ -1,4 +1,5 @@
 import { calculateQuoteTotals, type AdminQuoteRecord, type ProductCategory } from '@/lib/adminQuote'
+import { uiFallbacks } from '@/lib/appFallbacks'
 import type {
   QuoteLifecycleTag,
   QuoteStageTransitionRecord,
@@ -30,7 +31,7 @@ export const inferPaymentMethod = (paymentMethod?: string | null, paymentTerms?:
   const normalizedTerms = paymentTerms?.trim().toLowerCase() || ''
 
   if (!normalizedTerms) {
-    return 'Não informado'
+    return uiFallbacks.notInformed
   }
 
   if (normalizedTerms.includes('pix')) {
@@ -124,8 +125,8 @@ export const buildSaleListItem = (input: {
     itemCount: input.sale.recordSnapshot.items.length,
     productTypes,
     productLabel: formatSaleProductLabel(productTypes),
-    seamstressName: input.seamstressName || input.sale.recordSnapshot.seamstress.name || 'Sem costureira',
-    installerName: input.installerName || input.sale.recordSnapshot.installer.name || 'Sem instalador',
+    seamstressName: input.seamstressName || input.sale.recordSnapshot.seamstress.name || uiFallbacks.noSeamstress,
+    installerName: input.installerName || input.sale.recordSnapshot.installer.name || uiFallbacks.noInstaller,
   }
 }
 
@@ -185,7 +186,7 @@ const isWithinPeriod = (value: string | null, start: Date) => {
   return !Number.isNaN(parsed.getTime()) && parsed >= start
 }
 
-const pickTopLabel = (counter: Map<string, number>, fallback = 'Não informado') => {
+const pickTopLabel = (counter: Map<string, number>, fallback = uiFallbacks.notInformed) => {
   let bestLabel = fallback
   let bestValue = 0
 
