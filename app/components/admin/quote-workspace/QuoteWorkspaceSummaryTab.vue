@@ -27,23 +27,30 @@ defineProps<{
       </div>
 
       <div class="grid gap-3 sm:grid-cols-2">
-        <div v-for="metric in heroMetrics" :key="metric.label" class="grid gap-1 rounded-[22px] border border-line/10 bg-surface-soft/78 p-4">
-          <span class="text-[0.72rem] font-bold uppercase tracking-[0.08em] text-muted/68">{{ metric.label }}</span>
-          <strong class="text-base text-foreground">{{ metric.value }}</strong>
-        </div>
+        <AdminSummaryCard
+          v-for="metric in heroMetrics"
+          :key="metric.label"
+          :label="metric.label"
+          :value="metric.value"
+        />
       </div>
     </AppSectionCard>
 
     <div class="grid gap-4 lg:grid-cols-2">
-      <article v-for="section in sections" :key="section.title" class="grid gap-3 rounded-[24px] border border-line/15 bg-white/72 p-5">
-        <span class="app-kicker">{{ section.title }}</span>
+      <AdminRecordCard
+        v-for="section in sections"
+        :key="section.title"
+        :kicker="section.title"
+        title="Resumo consolidado"
+        subtitle="Leitura rápida dos dados principais desta frente do orçamento"
+      >
         <ul class="grid gap-3">
           <li v-for="item in section.items" :key="`${section.title}-${item.label}`" class="grid gap-1 border-b border-line/10 pb-3 last:border-b-0 last:pb-0">
             <span class="text-[0.72rem] font-bold uppercase tracking-[0.08em] text-muted/68">{{ item.label }}</span>
             <strong class="text-sm leading-6 text-foreground">{{ item.value }}</strong>
           </li>
         </ul>
-      </article>
+      </AdminRecordCard>
 
       <QuoteWorkspaceTotalsCard :totals="totals" class="lg:col-span-2" />
     </div>

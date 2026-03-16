@@ -220,23 +220,28 @@ onMounted(() => {
             </div>
           </AppSectionCard>
 
-          <AppSectionCard v-if="linkedPreQuoteId || linkedCustomerId || linkedSale">
+          <AppSectionCard v-if="linkedPreQuoteId || linkedCustomerId || linkedSale" class="grid gap-4">
+            <div class="grid gap-2">
+              <span class="app-kicker">Contexto vinculado</span>
+              <h2 class="text-[clamp(1.1rem,1.8vw,1.45rem)] text-foreground">Origem comercial e relacionamento preservados</h2>
+            </div>
+
             <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div class="grid gap-1">
+              <article class="grid gap-1 rounded-[22px] border border-line/10 bg-surface-soft/68 p-4">
                 <span class="app-kicker">Cliente vinculado</span>
                 <strong class="text-lg text-foreground">{{ linkedCustomerName || record.customer.name || 'Cliente sem identificação' }}</strong>
                 <p class="text-sm leading-6 text-muted/78">
                   {{ linkedCustomerLocation || record.customer.city || record.customer.neighborhood || 'Origem não informada' }}
                 </p>
-              </div>
+              </article>
 
-              <div v-if="linkedPreQuoteId" class="grid gap-1">
+              <article v-if="linkedPreQuoteId" class="grid gap-1 rounded-[22px] border border-line/10 bg-surface-soft/68 p-4">
                 <span class="app-kicker">Pré-orçamento de origem</span>
                 <strong class="text-lg text-foreground">{{ linkedPreQuoteCode }}</strong>
                 <p class="text-sm leading-6 text-muted/78">Conversão preservada para rastreabilidade comercial.</p>
-              </div>
+              </article>
 
-              <div v-if="linkedSale" class="grid gap-1">
+              <article v-if="linkedSale" class="grid gap-1 rounded-[22px] border border-line/10 bg-surface-soft/68 p-4">
                 <span class="app-kicker">Venda vinculada</span>
                 <div class="flex flex-wrap items-center gap-2">
                   <strong class="text-lg text-foreground">{{ linkedSale.recordSnapshot.project.code }}</strong>
@@ -245,7 +250,7 @@ onMounted(() => {
                 <p class="text-sm leading-6 text-muted/78">
                   Venda registrada em {{ new Date(linkedSale.soldAt).toLocaleDateString('pt-BR') }}.
                 </p>
-              </div>
+              </article>
             </div>
           </AppSectionCard>
 

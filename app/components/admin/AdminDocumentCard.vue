@@ -27,202 +27,74 @@ const whatsappDisabled = computed(() => Boolean(whatsappBlockReason.value) || pr
 </script>
 
 <template>
-  <article class="document-card">
-    <div class="document-card-head">
-      <div>
-        <h3>{{ title }}</h3>
-        <p>{{ description }}</p>
+  <AppSectionCard class="grid gap-5">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div class="grid gap-2">
+        <span class="app-kicker">Documento operacional</span>
+        <div class="grid gap-1.5">
+          <h3 class="text-[1.35rem] text-foreground">
+            {{ title }}
+          </h3>
+          <p class="text-sm leading-6 text-muted/78">
+            {{ description }}
+          </p>
+        </div>
       </div>
-      <button type="button" class="download-button" @click="$emit('download')">Baixar PDF</button>
+      <AppButton variant="secondary" size="sm" @click="$emit('download')">
+        Baixar PDF
+      </AppButton>
     </div>
 
-    <ul class="preview-list">
-      <li v-for="line in previewLines" :key="line">{{ line }}</li>
-    </ul>
+    <div class="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.85fr)]">
+      <div class="grid gap-3 rounded-[24px] border border-line/10 bg-surface-soft/68 p-4">
+        <span class="text-[0.72rem] font-bold uppercase tracking-[0.08em] text-muted/68">Prévia rápida</span>
+        <ul class="grid gap-2 pl-4 text-sm leading-6 text-muted/78">
+          <li v-for="line in previewLines" :key="line">{{ line }}</li>
+        </ul>
+      </div>
 
-    <div class="recipient-list">
-      <span v-if="hasEmail">E-mail: {{ recipientEmail }}</span>
-      <span v-if="hasWhatsApp">WhatsApp: {{ recipientWhatsapp }}</span>
-      <span v-if="!hasEmail && !hasWhatsApp">Defina um canal de envio antes de disparar.</span>
+      <div class="grid gap-3 rounded-[24px] border border-line/10 bg-white/88 p-4">
+        <span class="text-[0.72rem] font-bold uppercase tracking-[0.08em] text-muted/68">Canais de envio</span>
+        <div class="grid gap-2 text-sm leading-6 text-muted/78">
+          <span v-if="hasEmail">E-mail: {{ recipientEmail }}</span>
+          <span v-if="hasWhatsApp">WhatsApp: {{ recipientWhatsapp }}</span>
+          <span v-if="!hasEmail && !hasWhatsApp">Defina um canal de envio antes de disparar.</span>
+        </div>
+      </div>
     </div>
 
-    <div class="actions-row">
-      <div class="action-shell" :class="{ 'action-shell-disabled': Boolean(emailBlockReason) }"
-        :tabindex="emailBlockReason ? 0 : -1">
-        <button type="button" class="action-button" :disabled="emailDisabled" @click="$emit('send-email')">
+    <div class="flex flex-wrap gap-3">
+      <div
+        class="group relative grid w-full gap-2 sm:w-auto"
+        :tabindex="emailBlockReason ? 0 : -1"
+      >
+        <AppButton block class="sm:w-auto" :disabled="emailDisabled" @click="$emit('send-email')">
           {{ sendingEmail ? 'Enviando...' : 'Enviar por e-mail' }}
-        </button>
-        <span v-if="emailBlockReason" class="action-tooltip">{{ emailBlockReason }}</span>
-        <span v-if="emailBlockReason" class="action-reason-mobile">{{ emailBlockReason }}</span>
+        </AppButton>
+        <span
+          v-if="emailBlockReason"
+          class="hidden w-[min(280px,calc(100vw-3rem))] rounded-[16px] bg-foreground px-3 py-2 text-xs leading-5 text-white shadow-elevated sm:absolute sm:bottom-[calc(100%+0.75rem)] sm:left-1/2 sm:block sm:-translate-x-1/2 sm:translate-y-1 sm:opacity-0 sm:transition-all sm:duration-200 sm:group-hover:translate-y-0 sm:group-hover:opacity-100 sm:group-focus-within:translate-y-0 sm:group-focus-within:opacity-100"
+        >
+          {{ emailBlockReason }}
+        </span>
+        <span v-if="emailBlockReason" class="text-sm leading-6 text-warning sm:hidden">{{ emailBlockReason }}</span>
       </div>
 
-      <div class="action-shell" :class="{ 'action-shell-disabled': Boolean(whatsappBlockReason) }"
-        :tabindex="whatsappBlockReason ? 0 : -1">
-        <button type="button" class="action-button action-button-secondary" :disabled="whatsappDisabled"
-          @click="$emit('send-whatsapp')">
+      <div
+        class="group relative grid w-full gap-2 sm:w-auto"
+        :tabindex="whatsappBlockReason ? 0 : -1"
+      >
+        <AppButton variant="secondary" block class="sm:w-auto" :disabled="whatsappDisabled" @click="$emit('send-whatsapp')">
           {{ sendingWhatsApp ? 'Enviando...' : 'Enviar por WhatsApp' }}
-        </button>
-        <span v-if="whatsappBlockReason" class="action-tooltip">{{ whatsappBlockReason }}</span>
-        <span v-if="whatsappBlockReason" class="action-reason-mobile">{{ whatsappBlockReason }}</span>
+        </AppButton>
+        <span
+          v-if="whatsappBlockReason"
+          class="hidden w-[min(280px,calc(100vw-3rem))] rounded-[16px] bg-foreground px-3 py-2 text-xs leading-5 text-white shadow-elevated sm:absolute sm:bottom-[calc(100%+0.75rem)] sm:left-1/2 sm:block sm:-translate-x-1/2 sm:translate-y-1 sm:opacity-0 sm:transition-all sm:duration-200 sm:group-hover:translate-y-0 sm:group-hover:opacity-100 sm:group-focus-within:translate-y-0 sm:group-focus-within:opacity-100"
+        >
+          {{ whatsappBlockReason }}
+        </span>
+        <span v-if="whatsappBlockReason" class="text-sm leading-6 text-warning sm:hidden">{{ whatsappBlockReason }}</span>
       </div>
     </div>
-  </article>
+  </AppSectionCard>
 </template>
-
-<style scoped>
-.document-card {
-  padding: 24px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(197, 160, 89, 0.16);
-  box-shadow: 0 18px 44px rgba(22, 22, 22, 0.08);
-}
-
-.document-card-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  align-items: flex-start;
-  margin-bottom: 18px;
-}
-
-.document-card-head h3 {
-  color: var(--text-dark);
-  font-size: 1.35rem;
-  margin-bottom: 8px;
-}
-
-.document-card-head p,
-.preview-list,
-.recipient-list {
-  color: rgba(61, 61, 61, 0.86);
-}
-
-.download-button,
-.action-button {
-  padding: 12px 16px;
-  border-radius: 999px;
-  border: 1px solid rgba(26, 26, 26, 0.12);
-  background: rgba(255, 255, 255, 0.86);
-  color: var(--text-dark);
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.action-button {
-  background: var(--primary);
-  color: var(--white);
-  border-color: transparent;
-}
-
-.action-button-secondary {
-  background: rgba(26, 26, 26, 0.9);
-}
-
-.download-button:disabled,
-.action-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.preview-list {
-  display: grid;
-  gap: 8px;
-  padding-left: 18px;
-  margin-bottom: 18px;
-}
-
-.recipient-list {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 18px;
-  font-size: 0.94rem;
-}
-
-.actions-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.action-shell {
-  position: relative;
-  display: grid;
-  gap: 8px;
-}
-
-.action-tooltip {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 10px);
-  z-index: 3;
-  width: min(260px, calc(100vw - 48px));
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(22, 22, 22, 0.96);
-  color: rgba(255, 255, 255, 0.96);
-  font-size: 0.78rem;
-  line-height: 1.45;
-  box-shadow: 0 14px 28px rgba(22, 22, 22, 0.18);
-  transform: translateX(-50%) translateY(6px);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-.action-tooltip::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 100%;
-  width: 10px;
-  height: 10px;
-  background: rgba(22, 22, 22, 0.96);
-  transform: translate(-50%, -50%) rotate(45deg);
-}
-
-.action-shell-disabled:hover .action-tooltip,
-.action-shell-disabled:focus .action-tooltip,
-.action-shell-disabled:focus-within .action-tooltip {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-.action-reason-mobile {
-  display: none;
-  color: rgba(120, 84, 28, 0.92);
-  font-size: 0.84rem;
-  line-height: 1.5;
-}
-
-@media (max-width: 720px) {
-  .document-card {
-    padding: 18px;
-    border-radius: 24px;
-  }
-
-  .document-card-head {
-    flex-direction: column;
-  }
-
-  .download-button,
-  .action-button,
-  .actions-row,
-  .action-shell {
-    width: 100%;
-  }
-
-  .actions-row {
-    flex-direction: column;
-  }
-
-  .action-tooltip {
-    display: none;
-  }
-
-  .action-reason-mobile {
-    display: block;
-  }
-}
-</style>
