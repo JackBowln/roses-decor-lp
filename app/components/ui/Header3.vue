@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   BriefcaseBusiness,
   ChevronDown,
   LogOut,
 } from 'lucide-vue-next'
-import type { AdminNavigationGroup } from '@/lib/adminNavigation'
+import type { AdminNavigationEntry, AdminNavigationGroup } from '@/lib/adminNavigation'
 import { adminHeaderConfig } from '@/lib/adminNavigation'
 import { cn } from '@/lib/utils'
 import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
@@ -16,6 +16,7 @@ import MenuToggleIcon from '@/components/ui/MenuToggleIcon.vue'
 
 const props = withDefaults(defineProps<{
   groups: AdminNavigationGroup[]
+  primaryLinks?: AdminNavigationEntry[]
   authenticated?: boolean
   loggingOut?: boolean
   brandLabel?: string
@@ -30,6 +31,7 @@ const props = withDefaults(defineProps<{
   mobileMenuAriaLabel?: string
   mobileLogoutLabel?: string
 }>(), {
+  primaryLinks: () => [],
   authenticated: false,
   loggingOut: false,
   brandLabel: adminHeaderConfig.brandLabel,
@@ -50,6 +52,8 @@ const route = useRoute()
 const rootRef = ref<HTMLElement | null>(null)
 const mobileMenuOpen = ref(false)
 const openDesktopGroupId = ref<string | null>(null)
+const desktopTriggerRefs = ref<Record<string, HTMLElement | null>>({})
+const desktopDropdownAlignment = ref<Record<string, 'left' | 'right'>>({})
 const {
   expandedValues: expandedMobileGroups,
   isExpanded: isMobileGroupExpanded,
@@ -66,8 +70,52 @@ const isDesktopDropdownOpen = computed(() => openDesktopGroupId.value !== null)
 const isLinkActive = (to: string) => route.path === to
 const isGroupActive = (group: AdminNavigationGroup) => group.links.some((link) => isLinkActive(link.to))
 
+const setDesktopTriggerRef = (groupId: string) => (element: Element | null) => {
+  desktopTriggerRefs.value[groupId] = element instanceof HTMLElement ? element : null
+}
+
+const getDesktopDropdownWidth = (group: AdminNavigationGroup) => {
+  const maxWidth = group.quickLinks?.length ? 720 : 356
+
+  if (!import.meta.client) {
+    return maxWidth
+  }
+
+  return Math.min(window.innerWidth * 0.92, maxWidth)
+}
+
+const syncDesktopDropdownAlignment = (groupId: string) => {
+  if (!import.meta.client) {
+    return
+  }
+
+  const group = props.groups.find((entry) => entry.id === groupId)
+  const trigger = desktopTriggerRefs.value[groupId]
+
+  if (!group || !trigger) {
+    return
+  }
+
+  const margin = 16
+  const triggerRect = trigger.getBoundingClientRect()
+  const dropdownWidth = getDesktopDropdownWidth(group)
+
+  desktopDropdownAlignment.value[groupId] = triggerRect.left + dropdownWidth > window.innerWidth - margin
+    ? 'right'
+    : 'left'
+}
+
+const getDesktopDropdownPositionClass = (groupId: string) =>
+  desktopDropdownAlignment.value[groupId] === 'right' ? 'right-0 left-auto' : 'left-0 right-auto'
+
 const toggleDesktopGroup = (groupId: string) => {
-  openDesktopGroupId.value = openDesktopGroupId.value === groupId ? null : groupId
+  const nextGroupId = openDesktopGroupId.value === groupId ? null : groupId
+
+  openDesktopGroupId.value = nextGroupId
+
+  if (nextGroupId) {
+    syncDesktopDropdownAlignment(nextGroupId)
+  }
 }
 
 const closeMenus = () => {
@@ -86,6 +134,15 @@ watch(() => route.path, () => {
   closeMenus()
 })
 
+watch(openDesktopGroupId, async (groupId) => {
+  if (!groupId) {
+    return
+  }
+
+  await nextTick()
+  syncDesktopDropdownAlignment(groupId)
+})
+
 watch(
   [activeGroupId, () => props.groups.map((group) => group.id).join('|')],
   ([groupId]) => {
@@ -98,6 +155,28 @@ watch(
   },
   { immediate: true },
 )
+
+const handleWindowResize = () => {
+  if (openDesktopGroupId.value) {
+    syncDesktopDropdownAlignment(openDesktopGroupId.value)
+  }
+}
+
+onMounted(() => {
+  if (!import.meta.client) {
+    return
+  }
+
+  window.addEventListener('resize', handleWindowResize)
+})
+
+onBeforeUnmount(() => {
+  if (!import.meta.client) {
+    return
+  }
+
+  window.removeEventListener('resize', handleWindowResize)
+})
 </script>
 
 <template>
@@ -126,12 +205,28 @@ watch(
         </NuxtLink>
 
         <div class="hidden items-center gap-2 md:flex">
+          <NuxtLink
+            v-for="link in primaryLinks"
+            :key="link.to"
+            :to="link.to"
+            :class="cn(
+              'inline-flex min-h-touch items-center gap-2 rounded-pill border px-4 text-sm font-bold transition-colors',
+              isLinkActive(link.to)
+                ? 'border-transparent bg-primary text-white'
+                : 'border-black/10 bg-white/80 text-foreground hover:border-line/30 hover:bg-surface-soft/70',
+            )"
+          >
+            <component :is="link.icon" class="h-4 w-4" />
+            <span>{{ link.label }}</span>
+          </NuxtLink>
+
           <div
             v-for="group in groups"
             :key="group.id"
             class="relative"
           >
             <button
+              :ref="setDesktopTriggerRef(group.id)"
               type="button"
               :class="cn(
                 'inline-flex min-h-touch items-center gap-2 rounded-pill border px-4 text-sm font-bold transition-colors',
@@ -154,9 +249,13 @@ watch(
             <Transition name="header-dropdown">
               <div
                 v-if="openDesktopGroupId === group.id"
-                class="absolute left-0 top-full mt-3 w-[min(92vw,720px)] rounded-[24px] border border-line/15 bg-white/95 p-3 shadow-elevated backdrop-blur-sm"
+                :class="[
+                  !group.quickLinks ? 'w-[min(92vw,356px)]' : 'w-[min(92vw,720px)]',
+                  getDesktopDropdownPositionClass(group.id),
+                  'absolute top-full mt-3 rounded-[24px] border border-line/15 bg-white/95 p-3 shadow-elevated backdrop-blur-sm',
+                ]"
               >
-                <div class="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
+                <div class="grid gap-3" :class="[!group.quickLinks ? 'md:grid-cols-1' : 'md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]']">
                   <div class="grid gap-2">
                     <NuxtLink
                       v-for="link in group.links"
@@ -179,7 +278,7 @@ watch(
                     </NuxtLink>
                   </div>
 
-                  <div class="grid gap-3 rounded-[20px] border border-line/15 bg-primary/[0.045] p-4">
+                  <div class="grid gap-3 rounded-[20px] border border-line/15 bg-primary/[0.045] p-4" v-if="group.quickLinks">
                     <div>
                       <span class="app-kicker mb-1 block">{{ group.label }}</span>
                       <h3 class="text-base text-foreground">Atalhos operacionais</h3>
@@ -189,7 +288,7 @@ watch(
                         v-for="link in group.quickLinks"
                         :key="link.to"
                         :to="link.to"
-                        class="flex items-center gap-2 rounded-[16px] px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white/80"
+                        class="flex items-center gap-2 rounded-[16px] px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white/80 cursor-pointer hover:bg-red"
                       >
                         <component :is="link.icon" class="h-4 w-4 text-primary" />
                         <span>{{ link.label }}</span>
@@ -245,6 +344,45 @@ watch(
             @click.stop
           >
             <div class="mx-auto grid w-full max-w-6xl gap-3 safe-pb">
+              <section
+                v-if="primaryLinks.length"
+                class="grid gap-2 rounded-[22px] border border-line/15 bg-white/88 p-3 shadow-card"
+              >
+                <div class="px-1">
+                  <span class="app-kicker">Acesso direto</span>
+                </div>
+
+                <div class="grid gap-2">
+                  <NuxtLink
+                    v-for="link in primaryLinks"
+                    :key="link.to"
+                    :to="link.to"
+                    :class="cn(
+                      'grid grid-cols-[42px_minmax(0,1fr)] items-start gap-3 rounded-[16px] px-3 py-3 transition-colors',
+                      isLinkActive(link.to)
+                        ? 'bg-primary text-white'
+                        : 'bg-surface-soft/72 text-foreground hover:bg-surface-soft',
+                    )"
+                    @click="closeMenus"
+                  >
+                    <div :class="cn(
+                      'flex h-10 w-10 items-center justify-center rounded-[12px] border',
+                      isLinkActive(link.to)
+                        ? 'border-white/10 bg-white/10 text-white'
+                        : 'border-line/10 bg-white text-foreground',
+                    )">
+                      <component :is="link.icon" class="h-4 w-4" />
+                    </div>
+                    <div class="min-w-0">
+                      <span class="block text-sm font-bold">{{ link.label }}</span>
+                      <span :class="cn('mt-1 block text-xs leading-5', isLinkActive(link.to) ? 'text-white/82' : 'text-muted/78')">
+                        {{ link.description }}
+                      </span>
+                    </div>
+                  </NuxtLink>
+                </div>
+              </section>
+
               <section
                 v-for="group in groups"
                 :key="group.id"

@@ -2,6 +2,7 @@
 import Header3 from '@/components/ui/Header3.vue'
 import {
   adminHeaderConfig,
+  adminHeaderPrimaryLinks,
   adminNavigationGroups,
   adminNavigationLinks,
 } from '@/lib/adminNavigation'
@@ -24,8 +25,11 @@ const handleLogout = async () => {
 
 <template>
   <div class="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(197,160,89,0.12),transparent_28%),linear-gradient(180deg,#f8f4ed_0%,#fcfaf6_38%,#f3eadb_100%)] pb-20 md:pb-0">
+    <AppEnvironmentIndicator />
+
     <Header3
       :groups="adminNavigationGroups"
+      :primary-links="adminHeaderPrimaryLinks"
       :authenticated="session.authenticated"
       :logging-out="isLoggingOut"
       :brand-label="adminHeaderConfig.brandLabel"

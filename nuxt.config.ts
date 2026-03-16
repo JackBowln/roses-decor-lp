@@ -11,5 +11,8 @@ export default defineNuxtConfig({
     brevoApiKey: process.env.BREVO_API_KEY || '',
     brevoSenderEmail: process.env.BREVO_SENDER_EMAIL || '',
     brevoSenderName: process.env.BREVO_SENDER_NAME || 'Roses Decor',
+    public: {
+      appDbTarget: process.env.APP_DB_TARGET || 'development',
+    },
   },
 })

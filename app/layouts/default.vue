@@ -1,5 +1,6 @@
 <template>
   <div class="lp-wrapper">
+    <AppEnvironmentIndicator />
     <TheHeader />
     <main>
       <slot />

@@ -25,7 +25,7 @@ export interface AdminNavigationGroup {
   label: string
   icon: Component
   links: AdminNavigationEntry[]
-  quickLinks: AdminNavigationEntry[]
+  quickLinks?: AdminNavigationEntry[]
   summary: string
 }
 
@@ -40,19 +40,28 @@ export const adminNavigationLinks: AdminNavigationLink[] = [
   { label: 'Estoque', to: '/gestao/estoque' },
 ]
 
+export const adminHeaderPrimaryLinks: AdminNavigationEntry[] = [
+  {
+    label: 'Pre-orcamentos',
+    to: '/gestao/pre-orcamentos',
+    description: 'Entradas do site e triagem inicial do cliente.',
+    icon: ClipboardList,
+  },
+  {
+    label: 'Orcamentos',
+    to: '/gestao/orcamentos',
+    description: 'Negociacao, proposta final e conversao de venda.',
+    icon: TrendingUp,
+  },
+]
+
 export const adminNavigationGroups: AdminNavigationGroup[] = [
   {
     id: 'comercial',
     label: 'Comercial',
     icon: TrendingUp,
-    summary: 'Pre-orcamentos, orcamentos e vendas ficam no mesmo fluxo comercial.',
+    summary: 'Clientes e vendas ficam agrupados no acompanhamento comercial.',
     links: [
-      {
-        label: 'Pre-orcamentos',
-        to: '/gestao/pre-orcamentos',
-        description: 'Entradas do site e triagem inicial do cliente.',
-        icon: ClipboardList,
-      },
       {
         label: 'Clientes',
         to: '/gestao/clientes',
@@ -60,29 +69,9 @@ export const adminNavigationGroups: AdminNavigationGroup[] = [
         icon: Users,
       },
       {
-        label: 'Orcamentos',
-        to: '/gestao/orcamentos',
-        description: 'Negociacao, proposta final e conversao de venda.',
-        icon: TrendingUp,
-      },
-      {
         label: 'Vendas',
         to: '/gestao/vendas',
         description: 'Pedidos fechados, pagamentos e dashboards.',
-        icon: TrendingUp,
-      },
-    ],
-    quickLinks: [
-      {
-        label: 'Clientes',
-        to: '/gestao/clientes',
-        description: 'Historico e relacionamento por cliente.',
-        icon: Users,
-      },
-      {
-        label: 'Vendas',
-        to: '/gestao/vendas',
-        description: 'Fechamento, recebimento e dashboards.',
         icon: TrendingUp,
       },
     ],
