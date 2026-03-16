@@ -38,6 +38,13 @@ yarn dev
 bun run dev
 ```
 
+## Database Targets and Mock Seeds
+
+The application resolves the active operational database from `APP_DB_TARGET` and the matching `DATABASE_URL_*` env.
+
+Documentation:
+- [Database environments and mock seed workflow](./docs/database-environments.md)
+
 ## Production
 
 Build the application for production:

@@ -8,7 +8,7 @@ const assertOperationalDatabaseConfigured = () => {
   if (!shouldUseNeonStore()) {
     throw createError({
       statusCode: 503,
-      statusMessage: 'Os módulos operacionais exigem NETLIFY_DATABASE_URL, NEON_DATABASE_URL ou DATABASE_URL configurado.',
+      statusMessage: 'Os módulos operacionais exigem APP_DB_TARGET e a DATABASE_URL correspondente (development, test ou production).',
     })
   }
 }

@@ -1,7 +1,6 @@
 import { basename } from 'node:path'
 import { createError } from 'h3'
-import { neon } from '@netlify/neon'
-import { Pool, neonConfig, type PoolClient } from '@neondatabase/serverless'
+import type { PoolClient } from '@neondatabase/serverless'
 import {
   buildQuoteFabricConsumptionKey,
   buildCustomerSummaries,
@@ -50,6 +49,11 @@ import {
 } from '~~/app/lib/quoteWorkspace'
 import { normalizeAdminQuoteRecord, normalizePhone, resolveInstallationMeters, type AdminQuoteRecord } from '~~/app/lib/adminQuote'
 import { buildSaleListItem, buildSalesDashboardMetrics } from '~~/app/lib/sales'
+import {
+  createQuoteWorkspacePool,
+  getQuoteWorkspaceSql,
+  isQuoteWorkspaceDatabaseConfigured,
+} from '~~/server/data/quoteWorkspaceDb'
 
 export interface WorkspaceDocumentPayload {
   bytes: Uint8Array
@@ -233,46 +237,11 @@ interface StockMovementJoinedRow extends StockMovementRow {
   quote_code: string | null
 }
 
-const resolveDatabaseUrl = () =>
-  process.env.NETLIFY_DATABASE_URL
-  || process.env.NEON_DATABASE_URL
-  || process.env.DATABASE_URL
-  || ''
-
-export const isNeonQuoteWorkspaceConfigured = () => Boolean(resolveDatabaseUrl())
-
-if (!neonConfig.webSocketConstructor && typeof WebSocket !== 'undefined') {
-  neonConfig.webSocketConstructor = WebSocket
-}
-
-const getSql = () => {
-  const explicitUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL
-
-  if (explicitUrl) {
-    return neon(explicitUrl)
-  }
-
-  if (process.env.NETLIFY_DATABASE_URL) {
-    return neon()
-  }
-
-  throw createError({
-    statusCode: 503,
-    statusMessage: 'Configure NETLIFY_DATABASE_URL, NEON_DATABASE_URL ou DATABASE_URL para persistência no Neon.',
-  })
-}
+export const isNeonQuoteWorkspaceConfigured = () => isQuoteWorkspaceDatabaseConfigured()
+const getSql = () => getQuoteWorkspaceSql()
 
 const createPool = () => {
-  const connectionString = resolveDatabaseUrl()
-
-  if (!connectionString) {
-    throw createError({
-      statusCode: 503,
-      statusMessage: 'Configure NETLIFY_DATABASE_URL, NEON_DATABASE_URL ou DATABASE_URL para persistência no Neon.',
-    })
-  }
-
-  return new Pool({ connectionString })
+  return createQuoteWorkspacePool()
 }
 
 const withTransaction = async <T>(task: (client: PoolClient) => Promise<T>) => {
@@ -899,6 +868,8 @@ const ensureSchema = async () => {
 
   return schemaPromise
 }
+
+export const ensureQuoteWorkspaceSchema = ensureSchema
 
 const serializeWrite = async <T>(task: () => Promise<T>) => {
   const nextTask = writeQueue.then(task)
